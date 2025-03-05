@@ -1,15 +1,14 @@
-#!/usr/bin/env python3
-
+# import pyrealsense2 as rs
 import cv2
 import numpy as np
 from ultralytics import YOLO
 from collections import deque  # optional for fixed-size history
 import threading
 import time
-import rospy
-from geometry_msgs.msg import PoseStamped, Quaternion
-from std_msgs.msg import Header
-from tf.transformations import quaternion_from_matrix
+# import rospy
+# from geometry_msgs.msg import PoseStamped, Quaternion
+# from std_msgs.msg import Header
+# from tf.transformations import quaternion_from_matrix
 import pyzed.sl as sl  # ZED SDK
 
 class TomatoDetector:
@@ -18,18 +17,14 @@ class TomatoDetector:
         rospy.init_node('tomato_detector', anonymous=True)
         self.pose_pub = rospy.Publisher('/tomato_pose', PoseStamped, queue_size=10)
 
-        # Load parameters from launch file
-        self.model_path = rospy.get_param("~model_path", "models/keypoints_new.pt")
-        self.show_frame = rospy.get_param("~show_frame", False)
-        self.frame_id = rospy.get_param("~frame_id", "zed_camera")
-
         # Initialize ZED camera
         self.zed = sl.Camera()
         init_params = sl.InitParameters()
         init_params.depth_mode = sl.DEPTH_MODE.ULTRA  # High-quality depth
         init_params.coordinate_units = sl.UNIT.METER  # Depth in meters
         if self.zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
-            rospy.logerr("ZED Camera failed to initialize!")
+            print("ZED Camera failed to initialize!")
+            # rospy.logerr("ZED Camera failed to initialize!")
             exit(1)
 
         self.runtime_params = sl.RuntimeParameters()
@@ -66,15 +61,20 @@ class TomatoDetector:
         self.zed.close()
         cv2.destroyAllWindows()
 
-    def pixel_to_3d(self, x, y):
+    def pixel_to_3d(self, px, py):
         """Convert pixel (x, y) to 3D world coordinates using ZED depth."""
-        err, depth_value = self.zed.retrieve_measure(self.depth_map, sl.MEASURE.DEPTH).get_value(x, y)
-        if err != sl.ERROR_CODE.SUCCESS or depth_value <= 0:
-            return None  # No valid depth
+        # err, depth_value = self.zed.retrieve_measure(self.depth_map, sl.MEASURE.DEPTH).get_value(x, y)
+        # if err != sl.ERROR_CODE.SUCCESS or depth_value <= 0:
+        #     return None  # No valid depth
+
+        depth_value = self.depth_map.get_value(px, py)[1]  # Correct way to get depth
+        if np.isnan(depth_value) or np.isinf(depth_value) or depth_value <= 0:
+            print(f"Invalid depth at ({px}, {py}): {depth_value}")
+            return None  # Skip if depth is invalid
 
         # Convert pixel to real-world coordinates
-        point_3d = [(x - self.cx) * depth_value / self.fx,
-                    (y - self.cy) * depth_value / self.fy,
+        point_3d = [(px - self.cx) * depth_value / self.fx,
+                    (py - self.cy) * depth_value / self.fy,
                     depth_value]
         return point_3d
 
@@ -89,10 +89,10 @@ class TomatoDetector:
             for dy in range(-region_size // 2, region_size // 2 + 1):
                 px = min(max(center_x + dx, 0), self.depth_map.get_width() - 1)
                 py = min(max(center_y + dy, 0), self.depth_map.get_height() - 1)
-                err, depth = self.zed.retrieve_measure(self.depth_map, sl.MEASURE.DEPTH).get_value(px, py)
 
-                if err == sl.ERROR_CODE.SUCCESS and depth > 0:
-                    depths.append(depth)
+                depth_value = self.depth_map.get_value(px, py)[1]  # Correct way to get depth
+                if depth_value > 0:  # Ignore invalid depth values
+                    depths.append(depth_value)
 
         return np.mean(depths) if depths else 0
 
@@ -128,7 +128,7 @@ class TomatoDetector:
         def project_to_2d(point_3d):
             """Projects 3D world coordinates to 2D image coordinates using the ZED intrinsic matrix."""
             x, y, z = point_3d
-            if z <= 0:  # Avoid invalid depth values
+            if np.isnan(z) or np.isinf(z) or z <= 0:  # Avoid invalid depth values
                 return None
             u = int((x * self.fx / z) + self.cx)
             v = int((y * self.fy / z) + self.cy)
@@ -153,8 +153,8 @@ class TomatoDetector:
         self.zed.retrieve_image(self.image_zed, sl.VIEW.LEFT)
         self.zed.retrieve_measure(self.depth_map, sl.MEASURE.DEPTH)
 
-        color_image = self.image_zed.get_data()[:, :, :3]  # Get RGB image
-
+        color_image = self.image_zed.get_data()[:, :, :3]
+        color_image = np.array(color_image, dtype=np.uint8)  # Ensure NumPy format
         results = self.model.predict(source=color_image, conf=0.5, save=False, save_txt=False, show=False,
                                      verbose=False)
         detections = results[0]
@@ -179,11 +179,13 @@ class TomatoDetector:
                     print(f"Bounding box length: {object_radius:.2f} m")
                     cv2.putText(color_image, f"L:{object_radius:.2f}", (x1, y1 + 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                else:
+                    continue
 
                 for idx, kp in enumerate(keypoints):
                     kp_x, kp_y, kp_conf = int(kp[0]), int(kp[1]), kp[2]
                     color = self.keypoint_colors[idx % len(self.keypoint_colors)]
-                    if kp_conf > 0.2:
+                    if kp_conf > 0.8:
                         point_3d = self.pixel_to_3d(kp_x, kp_y)
                         if point_3d:
                             points_3d.append(point_3d)
@@ -210,6 +212,7 @@ class TomatoDetector:
                         reference_frame["y_axis"],
                         reference_frame["z_axis"]
                     )
+                    #print()
                     self.publish_pose(reference_frame)
 
         # Update the last keypoint set and optionally store it in history
@@ -251,7 +254,8 @@ class TomatoDetector:
         return self.last_keypoint_set
 
     def run(self):
-        rate = rospy.Rate(10)  # Publish at 10 Hz
+
+        rate = rospy.Rate(500)  # Publish at 10 Hz
         try:
             while not rospy.is_shutdown():
                 image = self.process_frame()
@@ -279,19 +283,10 @@ if __name__ == "__main__":
 
     # Keep the main thread alive
     # try:
+    #     detector = TomatoDetector(model_path='models/keypoints_new.pt', show_frame=True)
     #     while True:
-    #         time.sleep(1)
+    #         time.sleep(0.02)
     # except KeyboardInterrupt:
     #     print("Exiting...")
 
 
-    # Parse keypoints
-    # keypoints = detector.get_last_keypoint_set()  # Retrieve the latest keypoint set
-    #
-    # if keypoints:
-    #     for idx, kp in enumerate(keypoints):
-    #         point = kp["point"]         # This gives you the 3D coordinates, e.g., [x, y, z]
-    #         confidence = kp["confidence"] # This gives you the confidence value
-    #         print(f"Keypoint {idx}: Coordinates = {point}, Confidence = {confidence}")
-    # else:
-    #     print("No keypoints detected in the current frame.")
