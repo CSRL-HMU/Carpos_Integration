@@ -1,0 +1,40 @@
+<launch>
+  <!-- Publish robot description -->
+  <param name="robot_description" command="cat $(find robot_description)/urdf/husky_ur10.urdf"/>
+
+  <!-- Launch Gazebo -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world"/>
+  </include>
+
+  <!-- Spawn the robot -->
+  <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-param robot_description -urdf -model husky_ur10"/>
+
+
+<!-- Start Robot State Publisher -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" output="screen">
+    <param name="robot_description" command="cat $(find robot_description)/urdf/husky_ur10.urdf" />
+  </node>
+<rosparam file="$(find robot_description)/config/controlH.yaml" command="load" />
+<node name="controller_spawner" pkg="controller_manager" type="spawner"
+      args="husky_velocity_controller ur10_controller joint_state_controller" output="screen" />
+
+  <!-- Start Joint State Publisher (Optional) -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" output="screen" />
+
+
+  <node pkg="twist_mux" type="twist_mux" name="twist_mux">
+    <rosparam command="load" file="$(find robot_description)/config/twist_muxH.yaml" />
+    <remap from="cmd_vel_out" to="husky_velocity_controller/cmd_vel"/>
+  </node>
+
+
+</launch>
+
+
+

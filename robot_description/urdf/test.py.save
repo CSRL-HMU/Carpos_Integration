@@ -1,0 +1,20 @@
+import kdl_parser_py.urdf as kdl_parser
+from urdf_parser_py.urdf import URDF
+
+urdf_file_path = "/path/to/your/husky_ur10.urdf"
+
+# Διαβάστε το URDF
+robot = URDF.from_xml_file(urdf_file_path)
+print(f"Robot name: {robot.name}")
+
+# Δημιουργία KDL Tree
+success, tree = kdl_parser.treeFromUrdfModel(robot)
+if success:
+    print("KDL Tree successfully created!")
+else:
+    print("Failed to create KDL Tree.")
+
+# Εκτύπωση links και joints
+for segment_name in tree.getSegments():
+    print(f"Segment: {segment_name}")
+/home/soupia/catkin_ws/src/robot_description/urdf/husky_ur10.urdf

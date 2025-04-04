@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="husky_ur10">
+
+  <!-- Include Husky and UR10 descriptions -->
+  <xacro:include filename="$(find husky_description)/urdf/husky.urdf.xacro" />
+  <xacro:include filename="$(find ur_description)/urdf/ur10e.xacro" />
+
+
+
+  <!-- Joint to connect UR10 to Husky -->
+  <joint name="husky_to_ur10" type="fixed">
+    <parent link="husky_base_link"/>
+    <child link="ur10_base_link"/>
+    <origin xyz="0 0 0.2" rpy="0 0 0"/>
+  </joint>
+
+</robot>
+

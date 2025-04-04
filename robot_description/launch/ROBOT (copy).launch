@@ -1,0 +1,53 @@
+<launch>
+
+    <param name="use_sim_time" value="true" />
+    <!-- Publish robot description -->
+  <param name="robot_description" command="cat $(find robot_description)/urdf/husky_ur10.urdf"/>
+
+   <!-- Launch Gazebo -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world"/>
+  </include>
+
+  <!-- Spawn the robot -->
+  <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-param robot_description -urdf -model husky_ur10"/>
+   
+    <!-- Start Robot State Publisher -->
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" output="screen">
+        <param name="publish_frequency" value="15" />
+        <param name="use_sim_time" value="true" />
+    </node>
+
+    <!-- Start Joint State Publisher -->
+    <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" output="screen">
+        <param name="use_gui" value="false" />
+        <param name="use_sim_time" value="true" />
+    </node>
+
+    <!-- Start RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find robot_description)/rviz/husky_ur10.rviz" required="true" output="screen"/>
+  <param name="use_sim_time" value="true" />
+
+    <!-- Static Transform from odom to base_link -->
+    <node pkg="tf" type="static_transform_publisher" name="odom_to_base_link" args="0 0 0 0 0 0 odom base_link 100" />
+    <param name="use_sim_time" value="true" />
+    <node pkg="tf" type="static_transform_publisher" name="ur10_to_zed" args="0 0 0 0 0 0 ur10_flange zed2_base_link_test 100" />
+
+
+    <!-- Start the ZED Wrapper -->
+<include file="$(find zed_wrapper)/launch/zed2.launch">
+    <!-- <arg name="base_frame" value="zed2_base_link_test" /> -->
+
+
+
+</include>
+
+    <!-- <node pkg="tf" type="static_transform_publisher" name="husky_odom" args="0 0 0 0 0 0.000 odom base_link 100" /> -->
+<node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map odom 100" />
+
+</launch>

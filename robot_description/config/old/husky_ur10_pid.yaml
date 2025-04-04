@@ -1,0 +1,43 @@
+gazebo_ros_control:
+  pid_gains:
+    husky_front_left_wheel:
+      p: 100.0
+      i: 0.0
+      d: 0.0
+    husky_front_right_wheel:
+      p: 100.0
+      i: 0.0
+      d: 0.0
+    husky_rear_left_wheel:
+      p: 100.0
+      i: 0.0
+      d: 0.0
+    husky_rear_right_wheel:
+      p: 100.0
+      i: 0.0
+      d: 0.0
+    UR10_ur10_shoulder_pan_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+    UR10_ur10_shoulder_lift_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+    UR10_ur10_elbow_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+    UR10_ur10_wrist_1_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+    UR10_ur10_wrist_2_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+    UR10_ur10_wrist_3_joint:
+      p: 50.0
+      i: 0.1
+      d: 5.0
+
