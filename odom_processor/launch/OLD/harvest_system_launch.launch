@@ -1,0 +1,13 @@
+<launch>
+    <!-- Εκκίνηση του Harvest Coordinator Node -->
+    <node name="harvest_coordinator" pkg="odom_processor" type="harvest_coordinator.py" output="screen" launch-prefix="python3"/>
+
+    <!-- Εκκίνηση του Perception Node -->
+    <node name="perception_node" pkg="odom_processor" type="perception_node.py" output="screen" launch-prefix="python3"/>
+
+    <!-- Εκκίνηση του Gripper Controller -->
+    <node name="gripper_controller" pkg="odom_processor" type="gripper_control.py" output="screen" launch-prefix="python3"/>
+
+    <!-- Εκκίνηση του Cutting Node -->
+    <node name="cutting_node" pkg="odom_processor" type="cutting_node.py" output="screen" launch-prefix="python3"/>
+</launch>

@@ -1,0 +1,21 @@
+<launch>
+       
+    <!-- Node για τον υπολογισμό της κίνησης και αποστολή εντολών -->
+    <node pkg="odom_processor" type="harvest_motion_node.py" name="harvest_motion_node" output="screen"/>
+
+    <!-- Node για την εκτέλεση των κινήσεων στον UR10 -->
+    <node pkg="CARPOS_amg" type="carpos_amg_node.py" name="carpos_amg" output="screen" launch-prefix="python3"/>
+
+    <!-- Start Tomato Detector Node -->
+    <node pkg="tomato_detector" type="tomato_detector.py" name="tomato_detector" output="screen">
+        <!--<param name="model_path" value="$(find tomato_detector)/models/keypoints_new.pt"/> -->
+        <param name="show_frame" value="True"/>
+        <param name="frame_id" value="zed_camera"/>
+    </node>
+    <!-- Εκκίνηση του κόμβου gripper_control -->
+    <node name="gripper_control" pkg="gripper_control" type="gripper_control.py" output="screen">
+        <param name="serial_port" value="/dev/ttyUSB0"/>
+        <param name="baud_rate" value="115200"/>
+    </node>
+</launch>
+
