@@ -65,7 +65,7 @@ class dmpSE3:
         self.dmp_translation.train(dt, p_array, plotPerformance = False)
         self.dmp_orientation.train(dt, Q_array, plotPerformance = False)
 
-        self.dmp_translation.dmp_array[0].kb.plot_t()
+        # self.dmp_translation.dmp_array[0].kb.plot_t()
 
         # if plotPerformance flag is enabled ...
         if plotPerformance: self.plotPerformance(dt, p_array, Q_array)
