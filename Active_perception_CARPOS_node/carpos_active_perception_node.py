@@ -10,6 +10,9 @@ import getch
 import math
 import rospy
 from std_msgs.msg import String
+import pyzed.sl as sl
+from pinhole import *
+
 
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
@@ -30,14 +33,62 @@ status_pub = rospy.Publisher('active_perception_status', String, queue_size=10)
 # Declare math pi
 pi = math.pi
 
+# ZED 2
+image_width = 1280
+image_height = 720
 
+
+
+# Camera intrinsic parameters of ZED2 for 1280 X 720 resolution
+fx = 720  # Focal length in x+ 0.14
+fy = 720  # Focal length in y
+cx = 640  # Principal point x (center of the image)
+cy = 360  # Principal point y (center of the image)
+
+# # Camera intrinsic parameters of D435 Realsense
+# fx = 870.00
+# fy = 900.00
+# cx = 640.886
+# cy = 363.087
+
+# Camera intrinsic matrix - K
+Kcamera = np.array([[fx, 0, cx],
+            [0, fy, cy],
+            [0, 0, 1]])
+
+ph = PinholeCamera(fx, fy, cx, cy, image_width, image_height)
+
+
+# Initialize the ZED camera
+zed = sl.Camera()
+init_params = sl.InitParameters()
+init_params.coordinate_units = sl.UNIT.METER
+init_params.camera_resolution = sl.RESOLUTION.HD720
+init_params.camera_fps = 30
+init_params.depth_mode = sl.DEPTH_MODE.PERFORMANCE
+init_params.coordinate_system = sl.COORDINATE_SYSTEM.IMAGE 
+
+
+
+status = zed.open(init_params)
+if status != sl.ERROR_CODE.SUCCESS:
+    print(f"Error: {status}")
+    exit(1)
+
+# Set camera to manual exposure mode
+zed.set_camera_settings(sl.VIDEO_SETTINGS.EXPOSURE, 10)
+
+# Prepare containers
+image_zed = sl.Mat()
+
+depth_map = sl.Mat()
 
 
 
 
 # This is the callback function for the high level commands
 def start_observation_callback(data):
-
+    global zed, Kcamera, ph, image_width, image_height
 
 
     mp_drawing = mp.solutions.drawing_utils
@@ -50,15 +101,17 @@ def start_observation_callback(data):
     # For webcam input:
     cap = cv2.VideoCapture("/dev/video0")
 
+    
+
     # set the FPS
     fps = 30
     dt = 1.0 / fps
 
-    cap.set(cv2.CAP_PROP_FPS, fps)
+    # cap.set(cv2.CAP_PROP_FPS, fps)
 
     # get width and height
-    c_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    c_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)  
+    c_width = image_width
+    c_height = image_height 
 
     # initialize arrays
     Q_array = np.array([0, 0, 0, 0])
@@ -81,9 +134,6 @@ def start_observation_callback(data):
 
 
 
-
-
-
     with mp_hands.Hands(
         model_complexity=0,
         min_detection_confidence=0.7,
@@ -91,19 +141,20 @@ def start_observation_callback(data):
         max_num_hands=1) as hands:
     
         # printProgressBar(0, 20, prefix = 'Progress:', suffix = 'Complete', length = 50)
-        while cap.isOpened():
+        while zed.grab() == sl.ERROR_CODE.SUCCESS:
+    
+            zed.retrieve_image(image_zed, sl.VIEW.LEFT)
+            zed.retrieve_measure(depth_map, sl.MEASURE.DEPTH)
+            image = image_zed.get_data()
+            d_image = depth_map.get_data()
+         
+
 
 
             t = time.time() - t0
             print("\r t=%.3f" % t , 's', end = '\r')
 
             
-            success, image = cap.read()
-            if not success: 
-                print("Ignoring empty camera frame.")
-                # If loading a video, use 'break' instead of 'continue'.
-                continue
-
             # To improve performance, optionally mark the image as not writeable to
             # pass by reference.
             image.flags.writeable = False
@@ -128,7 +179,7 @@ def start_observation_callback(data):
 
             
 
-            p, R = get_hand_pose(hand_landmarks, image, width=c_width, height=c_height)
+            p, R = get_hand_pose(hand_landmarks = hand_landmarks, image = image, width=c_width, height=c_height, ph_instance = ph, depth_image = d_image)
 
             print('p=', p)
             print('R=', R)

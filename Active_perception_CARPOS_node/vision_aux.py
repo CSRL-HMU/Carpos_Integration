@@ -1,9 +1,12 @@
 import cv2
 import mediapipe as mp
 import numpy as np
+import pinhole
 
 
-def get_hand_pose(hand_landmarks, image, width, height):
+zed_depth_enable = False
+
+def get_hand_pose(hand_landmarks, image, width, height, ph_instance, depth_image):
 
     # get the cordinates of the specific landmarks 0, 1, 5 and 17
     j = 0 
@@ -50,6 +53,11 @@ def get_hand_pose(hand_landmarks, image, width, height):
     cv2.line(image, w_pixel , w_pixel + x_pixel, color=(0,0,200), thickness=10) 
     cv2.line(image, w_pixel , w_pixel + y_pixel, color=(0,200,0), thickness=10)
     cv2.line(image, w_pixel , w_pixel + z_pixel, color=(200,0,0), thickness=10)
+
+    depth_val = depth_image[w_pixel[0],w_pixel[1]]
+
+    if zed_depth_enable:
+        pw = ph_instance.back_project(w_pixel, depth_val)
 
     return pw, R
 
