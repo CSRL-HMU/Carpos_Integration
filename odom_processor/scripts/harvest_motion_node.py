@@ -39,34 +39,23 @@ class HarvestMotionNode:
         self.motion_pub = rospy.Publisher('/amg_command', HarvestCommand, queue_size=10)
         self.status_sub = rospy.Subscriber('/motion_status', String, self.motion_status_callback)
         self.tomato_sub = rospy.Subscriber('/tomato_frame', Pose, self.tomato_pose_callback)
-        
-        #self.tomato_pose_sub = rospy.Subscriber('/tomato_pose', PoseStamped, self.tomato_pose_callback)
-        
-        self.finger_pub = rospy.Publisher('/finger_control', Bool, queue_size=10)
-        
-        self.visual_obs_pub = rospy.Publisher('/visual_observation', String, queue_size=10, latch=True)
+                   
+        self.visual_obs_pub = rospy.Publisher('/start_active_perception', String, queue_size=10, latch=True)
 
-        #self.finger_status_sub = rospy.Subscriber('/finger_control_status', String, self.finger_status_callback)
-        
+        self.visual_obs_status_sub = rospy.Subscriber('/start_active_perception_status', String, self.visual_obs_status_callback)
+    
         self.command_sub = rospy.Subscriber('/command_topic', String, self.command_callback)
-        #self.gripper_pub = rospy.Publisher('/gripper_command', String, queue_size=10, latch=True)
-        #self.gripper_status_sub = rospy.Subscriber('/gripper_status', String, self.gripper_status_callback)  # Για τον Gripper
+        
         self.kinesthetic_status_sub = rospy.Subscriber('/kinesthetic_status', String, self.kinesthetic_status_callback)  # Για Kinesthetic
-        self.active_status_sub = rospy.Subscriber('/active_status', String, self.active_status_callback)  # Για Active Node
-        self.decGRASP_status_sub = rospy.Subscriber('/decGRASP_status', String, self.decGRASP_status_callback)  # Για decGRASP
-        self.detect_grasp_pub = rospy.Publisher('/decGRASP', String, queue_size=10, latch=True)
+        
         self.kinesthetic_pub = rospy.Publisher('/kinesthetic_correction', String, queue_size=10, latch=True)
-        self.dmp_pub = rospy.Publisher('/active_node', String, queue_size=10, latch=True)
-        # Publisher για το /finger_control (1 = Άνοιγμα, 0 = Κλείσιμο)
+        
         self.finger_pub = rospy.Publisher('/finger_control', Bool, queue_size=10)
 
-        #  Publisher για το /thumb_position (Float32MultiArray: [x, y, angle])
         self.thumb_pub = rospy.Publisher('/thumb_position', Float32MultiArray, queue_size=10)
 
-        # Subscriber για επιβεβαίωση από το /finger_status
         self.finger_status_sub = rospy.Subscriber('/finger_status', String, self.finger_status_callback)
 
-        # Subscriber για επιβεβαίωση από το /thumb_status
         self.thumb_status_sub = rospy.Subscriber('/thumb_status', String, self.thumb_status_callback)
 
         # Αρχικές καταστάσεις αναμονής
@@ -77,10 +66,8 @@ class HarvestMotionNode:
         self.current_phase = "idle"
         self.g0T = None
         self.awaiting_confirmation = False  # Για κινήσεις
-        #self.awaiting_gripper_confirmation = False  # Για τον Gripper
         self.awaiting_kinesthetic_confirmation = False  # Για Kinesthetic
-        self.awaiting_active_confirmation = False  # Για Active Node
-        self.awaiting_decGRASP_confirmation = False  # Για decGRASP
+        self.awaiting_visual_obs_confirmation = False
 
     def send_finger_command(self, state):
         """ 
@@ -134,11 +121,7 @@ class HarvestMotionNode:
         if msg.data in ["success", "error"]:
             self.awaiting_visual_obs_confirmation = False
             rospy.loginfo(f"Visual Observation confirmation received: {msg.data}")
-    #def gripper_status_callback(self, msg):
-    #    """ Callback για το /gripper_status """
-    #    if msg.data in ["success", "error"]:
-    #        self.awaiting_gripper_confirmation = False  # Αποδεσμεύουμε την αναμονή για τον Gripper
-     #       rospy.loginfo(f"Gripper confirmation received: {msg.data}")
+
     def load_urdf_model(self):
         """ Εκκινεί το URDF μοντέλο του ρομπότ μέσω roslaunch. """
         try:
@@ -153,17 +136,7 @@ class HarvestMotionNode:
             self.awaiting_kinesthetic_confirmation = False  # Αποδεσμεύουμε την αναμονή για Kinesthetic
             rospy.loginfo(f"Kinesthetic confirmation received: {msg.data}")
 
-    def active_status_callback(self, msg):
-        """ Callback για το /active_status """
-        if msg.data in ["success", "error"]:
-            self.awaiting_active_confirmation = False  # Αποδεσμεύουμε την αναμονή για Active Node
-            rospy.loginfo(f"Active Node confirmation received: {msg.data}")
-
-    def decGRASP_status_callback(self, msg):
-        """ Callback για το /decGRASP_status """
-        if msg.data in ["success", "error"]:
-            self.awaiting_decGRASP_confirmation = False  # Αποδεσμεύουμε την αναμονή για decGRASP
-            rospy.loginfo(f"decGRASP confirmation received: {msg.data}")
+   
 
     def motion_status_callback(self, msg):
         """ Διαχείριση μηνυμάτων κατάστασης από το /motion_status """
@@ -206,30 +179,14 @@ class HarvestMotionNode:
         self.motion_pub.publish(motion_msg)
         self.awaiting_confirmation = True  # Ενεργοποίηση αναμονής επιβεβαίωσης
 
-    #def send_gripper_command(self, command):
-    #    """ Στέλνει εντολή στον Gripper και περιμένει επιβεβαίωση """
-    #    rospy.loginfo(f"Sending gripper command: {command}")
-    #    self.gripper_pub.publish(command)
-    #    self.awaiting_gripper_confirmation = True  # Ενεργοποίηση αναμονής για τον Gripper
-
+    
     def send_kinesthetic_command(self, command):
         """ Στέλνει εντολή στο Kinesthetic και περιμένει επιβεβαίωση """
         rospy.loginfo(f"Sending kinesthetic command: {command}")
         self.kinesthetic_pub.publish(command)
         self.awaiting_kinesthetic_confirmation = True  # Ενεργοποίηση αναμονής για Kinesthetic
 
-    def send_dmp_command(self, command):
-        """ Στέλνει εντολή στο Active Node και περιμένει επιβεβαίωση """
-        rospy.loginfo(f"Sending active node command: {command}")
-        self.dmp_pub.publish(command)
-        self.awaiting_active_confirmation = True  # Ενεργοποίηση αναμονής για Active Node
-
-    def send_dec_grasp_command(self, command):
-        """ Στέλνει εντολή στο decGRASP και περιμένει επιβεβαίωση """
-        rospy.loginfo(f"Sending decGRASP command: {command}")
-        self.detect_grasp_pub.publish(command)
-        self.awaiting_decGRASP_confirmation = True  # Ενεργοποίηση αναμονής για decGRASP
-
+   
     def command_callback(self, msg):
         """ Διαχείριση εισερχόμενων εντολών """
         command_str = msg.data.strip()
@@ -280,28 +237,11 @@ class HarvestMotionNode:
                 self.visual_obs_pub.publish("start")
                 rospy.loginfo("Visual observation node triggered successfully.")
                 self.awaiting_visual_obs_confirmation = True
-                confirmation = self.wait_for_confirmation('/visual_observation_status', timeout=10.0)
+                confirmation = self.wait_for_confirmation('/start_active_perception_status', timeout=10.0)
                 if confirmation != "success":
                     rospy.logerr("Visual observation failed.")
                 return
-                ## Βήμα 3: Εκκίνηση decGRASP
-                #rospy.loginfo("Triggering decGRASP node...")
-                #self.send_dec_grasp_command("start")
-                #confirmation = self.wait_for_confirmation('/decGRASP_status', timeout=10.0)
-                #if confirmation != "success":
-                #    rospy.logerr("Failed to start decGRASP. Aborting sequence.")
-                 #   return
-
-                # Βήμα 4: Εκκίνηση active_node
-                #rospy.loginfo("Triggering active_node...")
-                #self.send_dmp_command("execute")
-                #confirmation = self.wait_for_confirmation('/active_status', timeout=10.0)
-                #if confirmation != "success":
-                #    rospy.logerr("Failed to execute active_node. Aborting sequence.")
-                #    return
-
-                #rospy.loginfo("Observation process completed.")
-
+                
             elif command_int == 5:  # Go Home
                 rospy.loginfo("Going Home...")
                 if self.g0T is None:
@@ -363,7 +303,7 @@ class HarvestMotionNode:
                 # Θέση του Thumb για κλειστό Finger
                 thumb_closed_position = [0.2, 0.1, -30.0] # na orisoume se ti pose tha kleinei
                 rospy.loginfo(f"Moving Thumb to Closed Position: {thumb_closed_position}")
-                self.send_thumb_command(thumb_closed_position)
+                self.send_thumb_position(*thumb_closed_position)
                 # Βήμα 6: Εκκίνηση Kinesthetic Correction
                 rospy.loginfo("Triggering Kinesthetic Correction...")
                 self.send_kinesthetic_command("start")
@@ -398,14 +338,7 @@ class HarvestMotionNode:
                     return
                 self.current_phase = "grasp"
 
-                # Βήμα 3: Κλείσιμο του Gripper
-                #rospy.loginfo("Closing Gripper...")
-                #s#elf.send_gripper_command("close")
-                #confirmation = self.wait_for_confirmation('/gripper_status', timeout=3.0)
-                #if confirmation != "success":
-                #   rospy.logerr("Failed to close gripper. Aborting sequence.")
-                 #   return
-                #self.current_phase = "gripper_close"
+               
                 rospy.loginfo("Triggering Kinesthetic Correction...")
                 self.send_kinesthetic_command("start")
                 confirmation = self.wait_for_confirmation('/kinesthetic_status', timeout=10.0)
@@ -424,14 +357,7 @@ class HarvestMotionNode:
                     return
                 self.current_phase = "basket"
 
-                # Βήμα 5: Άνοιγμα του Gripper
-                #rospy.loginfo("Opening Gripper...")
-                #self.send_gripper_command("open")
-                #confirmation = self.wait_for_confirmation('/gripper_status', timeout=3.0)
-                #if confirmation != "success":
-                #    rospy.logerr("Failed to open gripper. Aborting sequence.")
-                #    return
-                #self.current_phase = "waiting_gripper_open"
+                
                 rospy.loginfo("Opening Finger...")
                 self.send_finger_command(1)  # 1 = Άνοιγμα Finger (αντί για "OPEN")
 
@@ -454,7 +380,7 @@ class HarvestMotionNode:
                 # Θέση του Thumb για ανοιχτό Finger
                 thumb_open_position = [0.5, 0.3, 0.0]
                 rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_command(thumb_open_position)
+                self.send_thumb_position(*thumb_open_position)
 
                 # Βήμα 6: Επιστροφή στην αρχική θέση (home)
                 rospy.loginfo("Returning to Home Position...")
