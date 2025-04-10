@@ -14,7 +14,19 @@ from CSRL_control import *
 from CSRL_trajectory import *
 import rtde_receive
 import rtde_control
-from CSRL_orientation import *
+import scipy.io 
+from spatialmath import SE3
+
+
+import sys
+# caution: path[0] is reserved for script path (or '' in REPL)
+sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
+sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
+
+from CSRL_orientation import * 
+from CSRL_math import * 
+from dmpSE3 import * 
+
 
 
 
@@ -23,6 +35,10 @@ status_pub = rospy.Publisher('motion_status', String, queue_size=10)
 
 rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
 rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
+
+# DMP params
+kernelType = 'Gaussian' # other option: sinc
+canonicalType = 'linear' # other option: exponential
 
 
 # Declare math pi
@@ -42,6 +58,10 @@ ur = rt.DHRobot([
     rt.RevoluteDH(d = 0.11655)
 ], name='UR10e')
 
+# # Define the tool
+tool_position = SE3(0.0, 0.0, 0.16)  # Position of the tool (in meters)
+ur.tool = tool_position 
+
 
 # Get initial end-eefector pose
 g0 = ur.fkine(q0)
@@ -58,6 +78,10 @@ qdot = np.zeros(6)
 
 print('p0 = ', p0)
 print('R0 = ', R0)
+
+
+# The path in which the knowledge is stored
+knowledge_path = "/home/carpos/catkin_ws/src/task_knowledge/"
 
 
 
@@ -168,8 +192,184 @@ def amg_command_callback(data):
 
 
         elif data.motion_type == 'dmp':
-            print('[AMG] Executing DMP towards xT ... ')
-            print('[AMG] NOT FUNCTIONAL YET .... (TODO after the teaching phase)')
+            print('[AMG] Executing DMP fro mthe initial pose of the end-effector')
+
+            # Import current dmp model
+            data = scipy.io.loadmat(str(knowledge_path) +'/dmp_model.mat')
+
+   
+
+            # These are the weights of the DMP
+            W = np.array(data['W']) 
+
+            # The total duration 
+            T = data['T'][0][0]
+            print("T=",T)
+
+            # Import training data 
+            train_data = scipy.io.loadmat(str(knowledge_path) +'/training_demo.mat')
+
+
+            # Rrobc = np.array(train_data['Rrobc'])
+
+            p_train = np.array(train_data['p_array'])
+            Q_train = np.array(train_data['Q_array'])
+
+
+            # Set the initial and target values 
+            # the DMP is xonstructed with respect to the initial pose of the end-effector
+            space_scaling = 1.0
+            p0 = p_train[:,0] 
+            pT = space_scaling * p_train[:,-1] 
+
+            Q0 = Q_train[:,0] 
+            QT = Q_train[:,-1]
+
+            # Create the DMP SE(3) object
+            dmpTask = dmpSE3(N_in=W[0,:].size, T_in=T)
+
+            # Loading the weights as taken from the saved model
+            dmpTask.set_weights(W, T, Q0=Q0, Qtarget=QT)
+
+            #  Setting the params of DMP
+            dmpTask.set_goal(pT, QT)
+            dmpTask.set_init_pose(p0, Q0)
+
+            # Time scaling (if any ...)
+            tau = 1
+            dmpTask.set_tau(tau)
+
+            q0 = np.array(rtde_r.getActualQ())
+
+            # initialkizing the q_sim variable for the simuation
+            q_sim = q0.copy()
+
+            #get initial end effector position 
+            g0rob = ur.fkine(q0)
+            R0rob = np.array(g0rob.R)
+            p0rob = np.array(g0rob.t)
+            Q0rob = rot2quat(R0rob)
+
+
+            #initialize DMP state
+
+            # print('p0=', p0)
+            pd = p0.copy()  # Initially, setting the desired position to the initial position p0
+            dot_pd = np.zeros(3)
+
+            ddp = np.zeros(3)
+            dp = np.zeros(3)
+            ddeo = np.zeros(3)
+            deo = np.zeros(3)
+
+            Q_desired = Q0.copy()  # Initially, setting the desired orientation to the initial orientation R0
+            Q = Q0.copy()
+
+            eo = logError(QT, Q0)  # Initial orientation error
+            dot_eo = np.zeros(3)
+            ddot_eo = np.zeros(3)
+            omegad = np.zeros(3)
+            dot_omegad = np.zeros(3)
+
+            z = 0.0   #phase variable
+            dz = 0.0
+
+            t = 0
+
+
+            while z < 1.2:
+
+            
+                t_start = rtde_c.initPeriod()
+
+
+                # Integrate time
+                t = t + dt
+
+                # Euler integration to update the states
+                z += dz * dt
+                pd += dp * dt   
+                eo += deo * dt
+                dot_eo += ddeo * dt
+                dot_pd += ddp * dt
+
+
+            
+                # Calculate DMP state derivatives (get z_dot, p_dot, pdot_dot)
+                # dz, dp, ddp = model.get_state_dot(z, pd, dot_pd)
+                # get state dot
+                dz, dp, ddp, deo, ddeo = dmpTask.get_state_dot( z, 
+                                                                pd,                                                                                      
+                                                                dot_pd, 
+                                                                eo,
+                                                                dot_eo)
+                
+                
+                Q_desired =  quatProduct( quatInv( quatExp( 0.5 * eo ) ) , QT )
+                term3 = Jlog(quatProduct(QT,quatInv(Q_desired))) @ dot_eo
+                Qdot = - 0.5 * quatProduct( quatProduct( quatProduct(Q_desired, quatInv(QT)) , term3), Q_desired) 
+                QdotQinv = quatProduct(Qdot,quatInv(Q_desired))
+                omegad = 2 * QdotQinv[1:4]
+                # omegad = quat2rot(QT) @ omegad
+
+
+                # translate everything to the world frame
+                pdw = p0rob + R0rob @ pd
+                Qdw = rot2quat(R0rob @ quat2rot(Q_desired))
+                dot_pdw = R0rob @ dot_pd
+                omegadw = R0rob @ omegad
+
+                
+                # Get the actual joint values 
+                q = np.array(rtde_r.getActualQ())
+                if simOn:
+                    q = q_sim.copy()
+
+                # Get  end-efector pose
+                g = ur.fkine(q)
+                R = np.array(g.R)
+                p = np.array(g.t)
+
+                
+                
+
+                # velocity array
+                velocity_matrix = np.hstack((dot_pdw, omegadw))
+                
+                # error matrix 
+                Q = rot2quatCont(R,Q)
+                eo_robot = logError(Q, Qdw)
+                error_matrix = np.hstack((p - pdw, eo_robot))
+
+                # translate everything to the world frame
+                pdw = p0rob + R0rob @ pd
+                Qdw = rot2quat(R0rob @ quat2rot(Q_desired))
+                dot_pdw = R0rob @ dot_pd
+                omegadw = R0rob @ omegad
+
+                # get full jacobian
+                J = np.array(ur.jacob0(q))
+
+                # commanded joint velocity
+                qdot_command = kinTracking_SE3(p=p, A=Q, pd=pdw, Ad=Qdw, pd_dot=dot_pdw, omegad=omegadw, J=J)
+
+
+                    
+                # qdot = np.zeros(6)
+                
+                QT = Qdw.copy()
+                pT = pdw.copy()
+
+                # set joint speed
+                rtde_c.speedJ(qdot_command, 1, dt) # comment for Kinesthetic only
+                
+
+                # synchronize
+                rtde_c.waitPeriod(t_start)
+                
+            
+            
+            rtde_c.speedStop()                              
       
 
         ## Checking for Errors
