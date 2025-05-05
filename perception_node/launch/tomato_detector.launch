@@ -1,0 +1,9 @@
+<launch>
+    <!-- Start Tomato Detector Node -->
+    <node pkg="tomato_detector" type="perception_node.py" name="perception_node" output="screen">
+        <param name="model_path" value="$(find tomato_detector)/models/keypoints_new.pt"/>
+        <param name="show_frame" value="true"/>
+        <param name="frame_id" value="rs_camera"/>
+    </node>
+</launch>
+
