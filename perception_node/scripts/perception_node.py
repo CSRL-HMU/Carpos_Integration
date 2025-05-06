@@ -203,17 +203,13 @@ class GraspDetector:
         return object_size
 
     def get_hand_pose(self, hand_landmarks, image, width, height):
-
         # get the cordinates of the specific landmarks 0, 1, 5 and 17
         j = 0
         pw = np.array([hand_landmarks.landmark[j].x, hand_landmarks.landmark[j].y, hand_landmarks.landmark[j].z])
-
         j = 1
         pbth = np.array([hand_landmarks.landmark[j].x, hand_landmarks.landmark[j].y, hand_landmarks.landmark[j].z])
-
         j = 5
         pbi = np.array([hand_landmarks.landmark[j].x, hand_landmarks.landmark[j].y, hand_landmarks.landmark[j].z])
-
         j = 17
         pbs = np.array([hand_landmarks.landmark[j].x, hand_landmarks.landmark[j].y, hand_landmarks.landmark[j].z])
 
@@ -245,9 +241,9 @@ class GraspDetector:
         x_pixel = np.array([int(x[0] * 100), int(x[1] * 100)])
         y_pixel = np.array([int(y[0] * 100), int(y[1] * 100)])
         z_pixel = np.array([int(z[0] * 100), int(z[1] * 100)])
-        cv2.line(image, w_pixel, w_pixel + x_pixel, color=(0, 0, 200), thickness=10)
-        cv2.line(image, w_pixel, w_pixel + y_pixel, color=(0, 200, 0), thickness=10)
-        cv2.line(image, w_pixel, w_pixel + z_pixel, color=(200, 0, 0), thickness=10)
+        cv2.line(image, w_pixel, w_pixel + x_pixel, color=(0, 0, 200), thickness=6)
+        cv2.line(image, w_pixel, w_pixel + y_pixel, color=(0, 200, 0), thickness=6)
+        cv2.line(image, w_pixel, w_pixel + z_pixel, color=(200, 0, 0), thickness=6)
 
         return pw, R
 
@@ -308,13 +304,14 @@ class GraspDetector:
                         cv2.circle(color_frame_print, (px, py), 5, (0, 255, 255), -1)
                         cv2.putText(color_frame_print, str(i+3), (px + 10, py), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
-            # hand frame
-            pw, R = self.get_hand_pose(landmarks, color_frame_print, 640, 480)
-            if pw and R:
-                self.hand_pose[0:3, 0:3] = R  # Set the rotation
-                self.hand_pose[0:3, 3] = pw  # Set the translation
-            else:
-                self.hand_pose = np.eye(4)
+                    # hand frame
+                    pw, R = self.get_hand_pose(landmarks, color_frame_print, 640, 480)
+                    if pw is not None and R is not None:
+                        self.hand_pose[0:3, 0:3] = R  # Set the rotation
+                        wrist_point = rs.rs2_deproject_pixel_to_point(self.intrinsics, [pw[0], pw[1]], wrist_depth)
+                        self.hand_pose[0:3, 3] = wrist_point  # Set the translation
+                    else:
+                        self.hand_pose = np.eye(4)
 
         # YOLO Predictions
         detections = self.tomato_detector.process_frame(color_frame)
@@ -450,7 +447,7 @@ class GraspDetector:
                         start_time = time.time()
                         image = self.process_frame()
                         end_time = time.time() - start_time
-                        print(f"time: {end_time}")
+                        #print(f"time: {end_time}")
                         self.process_times.append(end_time)
 
                         self.last_frame = image
