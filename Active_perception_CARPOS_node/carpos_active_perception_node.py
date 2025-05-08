@@ -2,7 +2,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import time 
-from vision_aux import *
 import pathlib
 import scipy
 import os
@@ -10,17 +9,28 @@ import getch
 import math
 import rospy
 from std_msgs.msg import String
-import pyzed.sl as sl
-from pinhole import *
+from geometry_msgs.msg import PoseStamped, Quaternion
+from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool
+import roboticstoolbox as rt
+import rtde_receive
+import rtde_control
+from spatialmath import  SE3, SO3
+from scipy.linalg import block_diag
+from pynput import keyboard
+from cmaes import CMAwM
+import seaborn as sns
+from grasp_active_perception import *
+
+import pandas as pd
+import os
 
 
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
 sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
-sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
-
-from CSRL_orientation import * 
 from CSRL_math import * 
+from CSRL_orientation import * 
+sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from dmpSE3 import * 
 
 
@@ -33,85 +43,111 @@ status_pub = rospy.Publisher('active_perception_status', String, queue_size=10)
 # Declare math pi
 pi = math.pi
 
-# ZED 2
-image_width = 1280
-image_height = 720
+# this is the message that triggers the vision node
+trigger_vision_pub = rospy.Publisher('/grasp_enable', Bool, queue_size=10)
+
+# GLOBAL VARIABLES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+grasp_g = np.identity(4)
+hand_g = np.identity(4)
+tomato_g = np.identity(4)
+iteration_counter = 0
 
 
 
-# Camera intrinsic parameters of ZED2 for 1280 X 720 resolution
-fx = 720  # Focal length in x+ 0.14
-fy = 720  # Focal length in y
-cx = 640  # Principal point x (center of the image)
-cy = 360  # Principal point y (center of the image)
+# This is the callback function for the high level command of detecting and saving grasp
+def detect_and_save_grasp(data):
+    global grasp_g
 
-# # Camera intrinsic parameters of D435 Realsense
-# fx = 870.00
-# fy = 900.00
-# cx = 640.886
-# cy = 363.087
-
-# Camera intrinsic matrix - K
-Kcamera = np.array([[fx, 0, cx],
-            [0, fy, cy],
-            [0, 0, 1]])
-
-ph = PinholeCamera(fx, fy, cx, cy, image_width, image_height)
+    msg = Bool()
+    msg.data = True 
+    rospy.loginfo('[Active perception node] Triggering vision ... ')
+    trigger_vision_pub.publish(msg)
 
 
-# Initialize the ZED camera
-zed = sl.Camera()
-init_params = sl.InitParameters()
-init_params.coordinate_units = sl.UNIT.METER
-init_params.camera_resolution = sl.RESOLUTION.HD720
-init_params.camera_fps = 30
-init_params.depth_mode = sl.DEPTH_MODE.PERFORMANCE
-init_params.coordinate_system = sl.COORDINATE_SYSTEM.IMAGE 
+    for i in range(30):
+        time.sleep(0.03)
+        grasp_g = np.linalg.inv(tomato_g) * hand_g
+
+    
+    mdic = {"ggrasp": grasp_g}
+    scipy.io.savemat(str(knowledge_path) + "graspPose.mat", mdic)
+
+    msg.data = False 
+    rospy.loginfo('[Active perception node] Stopping vision ... ')
+    # trigger_vision_pub.publish(msg)
+  
 
 
+# This is the callback for getting the hand pose from vision
+def get_hand_pose_from_vision(data):
+    global hand_g
 
-status = zed.open(init_params)
-if status != sl.ERROR_CODE.SUCCESS:
-    print(f"Error: {status}")
-    exit(1)
+    hand_g = np.identity(4)
 
-# Set camera to manual exposure mode
-zed.set_camera_settings(sl.VIDEO_SETTINGS.EXPOSURE, 10)
+    
+    # Set position (origin)
+    hand_pos = np.array([data.pose.position.x,  data.pose.position.y, data.pose.position.z]) 
+    # Compute orientation (rotation matrix to quaternion)
+    hand_quat = np.array([data.pose.orientation.w, data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z])
+    hand_R = quat2rot(hand_quat)
 
-# Prepare containers
-image_zed = sl.Mat()
+    
+    hand_g[0:3, 0:3] = hand_R
+    hand_g[0:3, 3] = hand_pos
 
-depth_map = sl.Mat()
+
+# This is the callback for getting the tomato pose from vision
+def get_tomato_pose_from_vision(data):
+    global tomato_g
+
+    tomato_g = np.identity(4)
+
+    
+    # Set position (origin)
+    tomato_pos = np.array([data.pose.position.x,  data.pose.position.y, data.pose.position.z]) 
+    # Compute orientation (rotation matrix to quaternion)
+    tomato_quat = np.array([data.pose.orientation.w, data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z])
+    tomato_R = quat2rot(tomato_quat)
+
+    
+    tomato_g[0:3, 0:3] = tomato_R
+    tomato_g[0:3, 3] = tomato_pos
 
 
 
 
 # This is the callback function for the high level commands
 def start_observation_callback(data):
-    global zed, Kcamera, ph, image_width, image_height
+    global zed, Kcamera, ph, image_width, image_height, iteration_counter, hand_g
 
 
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
-    mp_hands = mp.solutions.hands
+    # Enable the vision node
+    msg = Bool()
+    msg.data = True 
+    rospy.loginfo('[Active perception node] Triggering vision ... ')
+    trigger_vision_pub.publish(msg)
+    
+    pcenter = np.zeros(3)
+    pcenter[0] = data.data[0]
+    pcenter[1] = data.data[1]
+    pcenter[2] = data.data[2]
+
+
+    if iteration_counter == 0:
+        go_optimal_pose(p_center=pcenter)
+
+    iteration_counter = iteration_counter + 1
+    
+
 
     # init time
     t = time.time() 
 
-    # For webcam input:
-    cap = cv2.VideoCapture("/dev/video0")
-
-    
 
     # set the FPS
     fps = 30
     dt = 1.0 / fps
 
-    # cap.set(cv2.CAP_PROP_FPS, fps)
-
-    # get width and height
-    c_width = image_width
-    c_height = image_height 
 
     # initialize arrays
     Q_array = np.array([0, 0, 0, 0])
@@ -119,118 +155,87 @@ def start_observation_callback(data):
     p_array = np.array([0, 0, 0])
     p_array.shape = (3,1)
 
-    # get the logging name
-    # print('Press any key...')
-    # char = getch.getch() 
-
     # Recording has started
-    print('Recording started ... ')
-
-    # time.sleep(3)
-
+    print('[Active perception node] Recording started ... ')
 
     # initialize time
     t0 = time.time()
 
-
-
-    with mp_hands.Hands(
-        model_complexity=0,
-        min_detection_confidence=0.7,
-        min_tracking_confidence=0.7,
-        max_num_hands=1) as hands:
     
-        # printProgressBar(0, 20, prefix = 'Progress:', suffix = 'Complete', length = 50)
-        while zed.grab() == sl.ERROR_CODE.SUCCESS:
-    
-            zed.retrieve_image(image_zed, sl.VIEW.LEFT)
-            zed.retrieve_measure(depth_map, sl.MEASURE.DEPTH)
-            image = image_zed.get_data()
-            d_image = depth_map.get_data()
-         
+    # Show the message picture
+    image = cv2.imread("Message.jpg", 0)
+    cv2.imshow('Message', image)
 
-
-
-            t = time.time() - t0
-            print("\r t=%.3f" % t , 's', end = '\r')
-
-            
-            # To improve performance, optionally mark the image as not writeable to
-            # pass by reference.
-            image.flags.writeable = False
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            # cv2.imshow('LbD through MediaPipe Hands (press Esc to stop recording)', cv2.flip(image, 1))
-            # cv2.waitKey(0)
+    vision_rate = rospy.Rate(fps) 
         
-            results = hands.process(image)
+    while True:
 
-            # Draw the hand annotations on the image.
-            image.flags.writeable = True
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(
-                        image,
-                        hand_landmarks,
-                        mp_hands.HAND_CONNECTIONS,
-                        mp_drawing_styles.get_default_hand_landmarks_style(),
-                        mp_drawing_styles.get_default_hand_connections_style())
-            
+        # Integrate time
+        t = time.time() - t0
 
-            
+        # print time progress
+        print("\r t=%.3f" % t , 's', end = '\r')
+                
+        # get hand pose from global variable (hand_g is set from the vision callback)
+        p = np.copy(hand_g[0:3, 3])
+        R = np.copy(hand_g[0:3, 0:3])
 
-            p, R = get_hand_pose(hand_landmarks = hand_landmarks, image = image, width=c_width, height=c_height, ph_instance = ph, depth_image = d_image)
+        # print pose
+        # print('p=', p)
+        # print('R=', R)
 
-            print('p=', p)
-            print('R=', R)
-
-            Q = rot2quat(R)
-
-            p.shape = (3,1)
-            Q.shape = (4,1)
-
-        
-            Q_array = np.hstack((Q_array,Q))
-            p_array = np.hstack((p_array,p))
+        # save pose to the array
+        Q = rot2quat(R)
+        p.shape = (3,1)
+        Q.shape = (4,1)
+        Q_array = np.hstack((Q_array,Q))
+        p_array = np.hstack((p_array,p))
 
 
-            
-            # Flip the image horizontally for a selfie-view display.
-            cv2.imshow('LbD through MediaPipe Hands (press Esc to stop recording)', cv2.flip(image, 1))
-            # if (cv2.waitKey(5) & 0xFF == 27) or t > 6:
-            if (cv2.waitKey(5) & 0xFF == 27):
-                break
+        # Break if esc is pressed
+        # if (cv2.waitKey(5) & 0xFF == 27) or t > 6:
+        if (cv2.waitKey(5) & 0xFF == 27):
+            break
+
+        vision_rate.sleep()
 
 
     cv2.destroyAllWindows()
-    cap.release()
+    # cap.release()
 
 
-    print("Recording ended. Duration = %.3f" % t)
+    msg.data = False 
+    rospy.loginfo('[Active perception node] Stopping vision ... ')
+    trigger_vision_pub.publish(msg)
+
+
+    print("[Active perception node] Recording ended. Duration = %.3f" % t)
 
 
     dt = t / p_array[0,:].size
-    print("Estimated mean dt = %.3f" % dt)
+    print("[Active perception node] Estimated mean dt = %.3f" % dt)
 
+    # Get initial pose
     Q0 = np.copy(Q_array[:,1])
     p0 = np.copy(p_array[:,1])
     Rc0 = quat2rot(Q0)
     R0c = Rc0.T
     Nsamples = Q_array[0,:].size
 
+    # get pose wrt the initial pose
     for i in range(Nsamples):
         # print(i)
         p_array[:,i] = R0c @ (p_array[:,i] - p0)
         Rch = quat2rot(Q_array[:,i])
         Q_array[:,i] = rot2quat(R0c @ Rch)
 
+    # save dataset array
     Q_array[:,1:] = makeContinuous(Q_array[:,1:])
     mdic = {"p_array": p_array[:,1:], "Q_array": Q_array[:,1:], "dt": dt, "Rrobc": R0c}
     print(str(knowledge_path) + 'training_demo.mat')
     scipy.io.savemat(str(knowledge_path) + 'training_demo.mat', mdic)
 
-
-
+    # Train the DMP model
     kernelType = 'Gaussian' # other option: sinc
     canonicalType = 'linear' # other option: exponential
 
@@ -252,12 +257,16 @@ def start_observation_callback(data):
     print("dmpTask.T=", dmpTask.T)
     dmpTask.train(dt, p_train, Q_train, False)
 
+    # Save the DMP model weights
     mdic = {"W": dmpTask.get_weights(), "T": dmpTask.T}
     scipy.io.savemat(str(knowledge_path) + "dmp_model.mat", mdic)
 
-    print("Training completed. The dmp_model is saved.")
+    print("[Active perception node]  Training completed. The dmp_model is saved.")
 
-   
+    # publishing success
+    status_str = "success" 
+    rospy.loginfo('[Active perception node]  Status: ' + status_str)
+    status_pub.publish(status_str)
 
 
     
@@ -266,10 +275,19 @@ def start_observation_callback(data):
 ############# MAIN ###############
 ##################################
 if __name__ == '__main__':
+
+    print('[Active perception node] Node started.')
     rospy.init_node('carpos_active_perception', anonymous=True)
     rate = rospy.Rate(100) 
 
-    rospy.Subscriber("start_active_perception", String, start_observation_callback)
+    rospy.Subscriber("start_active_perception", Float32MultiArray, start_observation_callback)
+    rospy.Subscriber("detect_and_save_grasp_pose", String, detect_and_save_grasp)
+    rospy.Subscriber("/hand_pose", PoseStamped, get_hand_pose_from_vision)
+    rospy.Subscriber("/tomato_pose", PoseStamped, get_tomato_pose_from_vision)
+    rospy.Subscriber("/keypoints", Float32MultiArray, get_features_from_vision)
+
+    print('[Active perception node] The subscribers are initialized.')
+    print('[Active perception node] Waiting for commands.')
  
     while not rospy.is_shutdown():
 
