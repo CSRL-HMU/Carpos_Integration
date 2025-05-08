@@ -5,6 +5,7 @@ import roboticstoolbox as rt
 import numpy.linalg as la
 
 
+
 # returns the vector-part error between two rotation matrices or quaternions A and Ad
 def vectorError(A, Ad):
      
@@ -29,7 +30,7 @@ def logError(A, Ad, enMin = True):
 
     eo = 2 * quatLog(quatProduct(Q, quatInv(Qd)))
     eo_alt = 2 * quatLog(quatProduct(-Q, quatInv(Qd)))
-    if np.linalg.norm(eo) > np.linalg.norm(eo_alt):
+    if enMin and np.linalg.norm(eo) > np.linalg.norm(eo_alt):
         eo = eo_alt
 
     return eo
@@ -329,6 +330,16 @@ def JQ(Q):
 
 
     return J
+
+# Integrate the angular velocity to obtain quaternion
+def quatIntegrate(A, omega, dt):
+
+    Q = enforceQuat(A)
+    Qw = quatExp(omega*dt/2)
+    Qnew = quatProduct(Qw, Q)
     
+
+    return Qnew
     
+
     
