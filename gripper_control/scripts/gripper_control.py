@@ -32,7 +32,7 @@ class GripperControl:
     ####################### Functions ########################
 
     def inverse_kinematics(self, x, y, phi):
-        l1, l2, l3 = 4, 3.5, 2.5
+        l1, l2, l3 = 3.9, 3.4, 2.5
         Xw = x - l3 * np.cos(phi)
         Yw = y - l3 * np.sin(phi)
         C2 = (Xw**2 + Yw**2 - l1**2 - l2**2) / (2 * l1 * l2)
@@ -48,7 +48,7 @@ class GripperControl:
 
         return np.array([theta1, theta2, theta3])
 
-    def move_along_trajectory(self, x_start, y_start, phi_start, x_end, y_end, phi_end, steps=50):
+    def move_along_trajectory(self, x_start, y_start, phi_start, x_end, y_end, phi_end, steps=10):
         x_points = np.linspace(x_start, x_end, steps)
         y_points = np.linspace(y_start, y_end, steps)
         phi_points = np.linspace(phi_start, phi_end, steps)
@@ -58,7 +58,7 @@ class GripperControl:
                 rospy.logwarn("Point unreachable, skipping")
                 continue
             angle1, angle2, angle3 = map(np.degrees, Qs)
-            self.send_commands(10 + angle1, 140 + angle2, 145 + angle3)
+            self.send_commands(angle1, angle2, angle3)
             rospy.sleep(0.1)
 
     def send_commands(self, angle1, angle2, angle3):
@@ -66,6 +66,12 @@ class GripperControl:
         self.ser.write(command.encode())
         self.ser.flush()
         rospy.loginfo("Sent Command: %s", command.strip())
+
+    def send_angles(self, angle1, angle2, angle3):
+        command = f"{angle1},{angle2},{angle3}\n"
+        self.ser.write(command.encode())
+        self.ser.flush()  # Ensure the command is sent
+        print(command)
 
     def send_actuator_command(self, state):
         command = f"{state}\n"
@@ -82,7 +88,9 @@ class GripperControl:
 
     def thumb_callback(self, msg):
         x, y, phi = msg.data
-        self.move_along_trajectory(self.x_start, self.y_start, self.phi_start, x, y, phi, steps=10)
+        Q = self.inverse_kinematics(x, y, phi)
+        #self.move_along_trajectory(self.x_start, self.y_start, self.phi_start, x, y, phi, steps=10)
+        self.send_angles(Q[0], Q[1], Q[2])
 
     ################ Main Loop ################
 
@@ -95,4 +103,3 @@ if __name__ == "__main__":
         robot_arm_control.run()
     except rospy.ROSInterruptException:
         pass
-
