@@ -64,9 +64,27 @@ def detect_and_save_grasp(data):
     trigger_vision_pub.publish(msg)
 
 
+
     for i in range(30):
         time.sleep(0.03)
-        grasp_g = np.linalg.inv(tomato_g) * hand_g
+
+        z_vis_tom = tomato_g[0:3,2].T
+        z_vis_tom.shape = (3,1)
+
+        N = np.eye(3)- z_vis_tom @ z_vis_tom.T
+        # print('z_vis_tom=',z_vis_tom)
+        # print('N=',N)
+        tomato_g[0:3,0] = N @ (hand_g[0:3,3] - tomato_g[0:3,3]) 
+        tomato_g[0:3,0] = tomato_g[0:3,0] / np.linalg.norm(tomato_g[0:3,0])
+
+        # print("hand_g[0:3,3] - tomato_g[0:3,3] = ", hand_g[0:3,3] - tomato_g[0:3,3])
+        # print("tomato_g[0:3,0] = ", tomato_g[0:3,0])
+        tomato_g[0:3,1] = np.cross(tomato_g[0:3,2],tomato_g[0:3,0])
+        grasp_g = np.linalg.inv(tomato_g) @ hand_g
+
+
+    print("tomato_g:", tomato_g) 
+    print("hand_g:", hand_g) 
 
     
     mdic = {"ggrasp": grasp_g}
@@ -114,6 +132,10 @@ def get_tomato_pose_from_vision(data):
     tomato_g[0:3, 3] = tomato_pos
 
 
+    # print('tomato_quat=', tomato_quat)
+    # print('tomato_R=', tomato_R)
+
+
 
 
 # This is the callback function for the high level commands
@@ -137,8 +159,17 @@ def start_observation_callback(data):
         go_optimal_pose(p_center=pcenter)
 
     iteration_counter = iteration_counter + 1
-    
 
+
+    while True:
+                  
+        detect_and_save_grasp(data)
+        
+        
+        if  input('Press: 0 -> re-detect,  1 -> Detection is ok .. ') != '0':
+            break
+    
+    
 
     # init time
     t = time.time() 
@@ -163,7 +194,7 @@ def start_observation_callback(data):
 
     
     # Show the message picture
-    image = cv2.imread("Message.jpg", 0)
+    image = cv2.imread("/home/carpos/catkin_ws/src/Active_perception_CARPOS_node/Message.jpg", 0)
     cv2.imshow('Message', image)
 
     vision_rate = rospy.Rate(fps) 

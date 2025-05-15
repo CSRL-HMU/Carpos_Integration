@@ -83,7 +83,9 @@ K= np.array([[633.5527954101562, 0, 640.886474609375],
             [0, 633.5527954101562, 363.0577087402344],
             [0, 0, 1]])
 
-def objective_function_with_kalman(params, rtde_r, UR_robot, T_des):
+R_dome = np.eye(3)
+
+def objective_function_with_kalman(params, rtde_r, UR_robot, T_des,p_center):
 
     global features, confidence, P, KALMAN_GAIN, H, Q, F, x, z, listener, stop_signal, measurement_uncertainty, gec, K
 
@@ -109,41 +111,53 @@ def objective_function_with_kalman(params, rtde_r, UR_robot, T_des):
     # keypoints = detector.get_last_keypoint_set()  # Retrieve the latest keypoint set
     
     # if keypoints:
+
+    # print('z',z)
+
+    # print('features:', features)
+    # print('confidence:', confidence)
+    
     
     for j in range(6):
 
-        p_te =  g0c @ np.append(features[j:j+3], 1)
+        p_te =  g0c @ np.append(features[j*3:j*3+3], 1)
+        # print('p_te:', p_te)
 
-        for idx in range(3):
+        # for idx in range(3):
+        #     # print('z[idx]:', z[idx])
 
-            z[idx] = p_te[0]         # This gives you the 3D coordinates, e.g., [x, y, z]
-            z[idx+6] = p_te[1]         # This gives you the 3D coordinates, e.g., [x, y, z]
-            z[idx+12] = p_te[2]         # This gives you the 3D coordinates, e.g., [x, y, z]
+        z[j] = p_te[0]         # This gives you the 3D coordinates, e.g., [x, y, z]
+        z[j+6] = p_te[1]         # This gives you the 3D coordinates, e.g., [x, y, z]
+        z[j+12] = p_te[2]         # This gives you the 3D coordinates, e.g., [x, y, z]
 
-            # # Find the diagonal position to update
-            # diag_index = idx * 6  # For idx=0, it's the first 3 positions; for idx=1, the next 3 positions, etc.
-            # # Fill the corresponding diagonal block with the keypoint's confidence
-            # np.fill_diagonal(measurement_uncertainty[diag_index:diag_index+6, diag_index:diag_index+6], 1-kp["confidence"])
-            # Compute and fill the correct diagonal positions
-            diag_indices = [idx, idx + 6, idx + 12]
-            # np.fill_diagonal(measurement_uncertainty[diag_indices, diag_indices], 1 - kp["confidence"])
-            measurement_uncertainty[diag_indices, diag_indices] = 1 - confidence[j]
-            # print(measurement_uncertainty)
-            #print(f'idx: {idx}, confidence: {kp["confidence"]}')
-
-
-            #print(f"Keypoint {idx}: Coordinates = {point}, Confidence = {confidence}")
+        # # Find the diagonal position to update
+        # diag_index = idx * 6  # For idx=0, it's the first 3 positions; for idx=1, the next 3 positions, etc.
+        # # Fill the corresponding diagonal block with the keypoint's confidence
+        # np.fill_diagonal(measurement_uncertainty[diag_index:diag_index+6, diag_index:diag_index+6], 1-kp["confidence"])
+        # Compute and fill the correct diagonal positions
+        diag_indices = [j, j + 6, j + 12]
+        # np.fill_diagonal(measurement_uncertainty[diag_indices, diag_indices], 1 - kp["confidence"])
+        measurement_uncertainty[diag_indices, diag_indices] = 1 - confidence[j]
+        # print(measurement_uncertainty)
+        #print(f'idx: {idx}, confidence: {kp["confidence"]}')
 
 
-    else:
-        print("No keypoints detected in the current frame.")
+        #print(f"Keypoint {idx}: Coordinates = {point}, Confidence = {confidence}")
+
+    # print('z', z)
+    # print('measurement_uncertainty: ', measurement_uncertainty)
+
+    # print('Test point 1... ')
+    # else:
+    #     pass
+        # print("No keypoints detected in the current frame.")
     # print(f"Z = {z}")
     # print(f"measurement: {measurement_uncertainty}")
 
 
     iterat = 1
     if iterat == 1:
-        x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49]).reshape((18, 1))
+        x = np.array([p_center[0]+0.02, p_center[0]+0.01, p_center[0]+0.03,p_center[0]+0.025, p_center[0]+0.026, p_center[0]+0.018,p_center[1]+0.02, p_center[1]+0.01, p_center[1]+0.03,p_center[1]+0.025, p_center[1]+0.026, p_center[1],p_center[2]+0.02, p_center[2]+0.01, p_center[2]+0.03,p_center[2]+0.025, p_center[2]+0.026, p_center[2]+0.018]).reshape((18, 1))
         #x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49])
         
     # Ensure that i am always to hemishere
@@ -378,7 +392,7 @@ def alpha_profile(t):
 ##############################################################################
 def polar_position_and_velocity(t,phi_0, phi_1, theta_0, theta_1, p_center, radius):
 
-    global features, confidence, P, KALMAN_GAIN, H, Q, F, x, z, listener, stop_signal, measurement_uncertainty
+    global features, confidence, P, KALMAN_GAIN, H, Q, F, x, z, listener, stop_signal, measurement_uncertainty, R_dome
     
     """
     Returns:
@@ -400,29 +414,44 @@ def polar_position_and_velocity(t,phi_0, phi_1, theta_0, theta_1, p_center, radi
     sintheta = math.sin(theta_t)
     costheta = math.cos(theta_t)
 
-    x = radius*sinphi*costheta
-    y = radius*sinphi*sintheta
-    z = radius*cosphi
-    p_des = p_center + np.array([x,y,z])
+    # x = radius*sinphi*costheta
+    # y = radius*sinphi*sintheta
+    # z = radius*cosphi
+    XX = -radius*cosphi
+    YY = radius*sinphi*costheta
+    ZZ = radius*sinphi*sintheta
+    p_des = p_center + R_dome @ np.array([XX,YY,ZZ])
 
     # partial derivatives => dp/dt
-    # dx/dphi = r cosphi costheta, dx/dtheta = -r sinphi sintheta
-    dx_dphi = radius*( cosphi*costheta )
-    dx_dtheta = radius*( -sinphi*sintheta )
-    # dy/dphi = r cosphi sintheta, dy/dtheta = r sinphi costheta
-    dy_dphi = radius*( cosphi*sintheta )
-    dy_dtheta= radius*( sinphi*costheta )
-    # dz/dphi = -r sinphi,        dz/dtheta= 0
-    dz_dphi = radius*( -sinphi )
-    dz_dtheta= 0.0
+   
+    # dx_dphi = radius*( cosphi*costheta )
+    # dx_dtheta = radius*( -sinphi*sintheta )
+    
+    # dy_dphi = radius*( cosphi*sintheta )
+    # dy_dtheta= radius*( sinphi*costheta )
+    
+    # dz_dphi = radius*( -sinphi )
+    # dz_dtheta= 0.0
 
+    dx_dphi = radius*( sinphi )
+    dx_dtheta= 0.0
+    
+    dy_dphi = radius*( cosphi*costheta )
+    dy_dtheta = radius*( -sinphi*sintheta )
+
+    dz_dphi = radius*( cosphi*sintheta )
+    dz_dtheta= radius*( sinphi*costheta )
+    
     # chain rule => dp/dt = partial wrt phi * phi_dot + partial wrt theta * theta_dot
     vx = dx_dphi*phi_dot + dx_dtheta*theta_dot
     vy = dy_dphi*phi_dot + dy_dtheta*theta_dot
     vz = dz_dphi*phi_dot + dz_dtheta*theta_dot
-    v_des = np.array([vx, vy, vz])
+    v_des =  R_dome @ np.array([vx, vy, vz])
 
     currentPar=[phi_t,theta_t]#---------------------------------------------------------------------------
+
+    # print('p_des: ', p_des)
+    
     return p_des, v_des, currentPar
 
 def desired_pose_polar_with_look_at(t,phi_0, phi_1, theta_0, theta_1, p_center, radius):
@@ -504,21 +533,27 @@ def get_features_from_vision(data):
     # print(confidence)
 
 
+
+
 def go_optimal_pose(p_center, radius=0.25):
 
-    
 
-    global features, confidence, P, KALMAN_GAIN, H, Q, F, x, z, listener, stop_signal, measurement_uncertainty, dt, duration
 
+    global features, confidence, P, KALMAN_GAIN, H, Q, F, x, z, listener, stop_signal, measurement_uncertainty, dt, duration, R_dome
+
+
+    theta_dome = math.atan2(p_center[1],p_center[0])
+    R_dome = rotZ(theta_dome)
+    print('R_dome: ', R_dome)
 
 
     partial_reward=0#-------------------------------------------------------
     # A) RTDE
     rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
-    #tcp_offset = [-0.04, -0.015, 0.08, 0, 0, 0]
+    tcp_offset = [-0.04, -0.0675, 0.067, 0, 0, 0]
     # rtde_c.setTcp(tcp_offset)
-    tcp_offset = [0, 0, 0, 0, 0, 0]
+    
     rtde_c.setTcp(tcp_offset)
     # B) UR Robot Model
     pi = math.pi
@@ -540,7 +575,7 @@ def go_optimal_pose(p_center, radius=0.25):
         rt.RevoluteDH(d = 0.11985, alpha = -pi/2),
         rt.RevoluteDH(d = 0.11655)
     ], name='UR10e')
-    tcp_offset_position = [0.0, 0.0, 0.0] #D415
+    tcp_offset_position = [-0.04, -0.0675, 0.067] #D415
     #tcp_offset_position = [-0.035, -0.015, 0.08] #D435
     # Define rotation (axis-angle format)
     rotation_axis = np.array([0, 0, 0])  # Rotation vector
@@ -558,10 +593,11 @@ def go_optimal_pose(p_center, radius=0.25):
 
     # C) Move to an Initial Joint Configuration ------ HOME POSITION
     #q0_deg = [81.7, -91.43, 91.18, -148.57, -124.27, 24]
-    q0_deg = [-170, -55, -127, 10, 83, 0]
+    # q0_deg = [-188.9, -88.9, 115.9, 163.8, -91.65, 0]
 
-    q0_rad = np.radians(q0_deg)
-    rtde_c.moveJ(q0_rad, 0.5, 0.5)
+    # q0_rad = np.radians(q0_deg)
+    q0_rad = np.array(rtde_r.getActualQ())
+    # rtde_c.moveJ(q0_rad, 0.5, 0.5)
 
 
     q_init = np.array(rtde_r.getActualQ())
@@ -580,7 +616,7 @@ def go_optimal_pose(p_center, radius=0.25):
 
     
 
-    seg_time  =5     # time (sec) for point to point movement with quintic (5th order) profile
+    seg_time  =1.5     # time (sec) for point to point movement with quintic (5th order) profile
 
     time_now  = 0.0
   
@@ -610,7 +646,7 @@ def go_optimal_pose(p_center, radius=0.25):
 
     # CMA-ES Optimization with Multiple Experiments
     for experiment_index in range(1):
-        phi0   = np.pi/3
+        phi0   = np.pi/6
         theta0 = np.pi/3
 
 
@@ -629,10 +665,10 @@ def go_optimal_pose(p_center, radius=0.25):
         cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
         steps = 0.01*np.ones(2)  # 
 
-        population_size =6
+        population_size =3
         optimizer = CMAwM(
             mean=initial_parameters,
-            sigma=6,#2,
+            sigma=30,#2,
             bounds=cma_bounds,
             steps=steps,
             population_size=population_size
@@ -661,7 +697,7 @@ def go_optimal_pose(p_center, radius=0.25):
         best_results =[]
         step_count = 0
 
-        for i in range (5): #  5 epochs ( iterations)
+        for i in range (3): #  5 epochs ( iterations)
             solutions = [] 
             solutions_for_cma_manipulation  = [] 
         # 7)  
@@ -670,7 +706,10 @@ def go_optimal_pose(p_center, radius=0.25):
                     # 1)  Ask CMAwM-ES for canditate solution
                     
                     x_for_eval, x_for_tell = optimizer.ask()
-                    print(x_for_eval)
+
+                    print('x_for_eval: ', x_for_eval)
+
+
                     phi1 = x_for_eval[0]
                     theta1 = x_for_eval[1]
             
@@ -721,7 +760,7 @@ def go_optimal_pose(p_center, radius=0.25):
                         optimization_time_start=time.time()
 
                         _,_,currentParams=polar_position_and_velocity(t_local,phi0, phi1, theta0, theta1, p_center, radius)
-                        partial_reward = objective_function_with_kalman(currentParams, rtde_r=rtde_r, UR_robot = UR_robot, T_des=T_des)#
+                        partial_reward = objective_function_with_kalman(currentParams, rtde_r=rtde_r, UR_robot = UR_robot, T_des=T_des,p_center=p_center)#
 
                         # print("t_local =",t_local)
 
@@ -750,10 +789,11 @@ def go_optimal_pose(p_center, radius=0.25):
                         if (len(solutions_for_cma_manipulation)==population_size): #Tell  (Update Optimizer) per...
                             
                             optimizer.tell(solutions_for_cma_manipulation)
+                            # print('solutions_for_cma_manipulation: ', solutions_for_cma_manipulation)
+                            print('last tell: ', solutions_for_cma_manipulation[-1])
                             solutions_for_cma_manipulation  = [] 
                             # Log the current sigma value
-                            covariance_log.append(optimizer._cma._C.copy())
-                            cmaes_sigma_log.append(optimizer._cma._sigma.copy())
+                        
                             
                             
                             #step_count = 0
@@ -848,7 +888,7 @@ def go_optimal_pose(p_center, radius=0.25):
 
         # 6) command speed
         rtde_c.speedJ(qdot, 1.0, dt)
-        rtde_c.waitPeriod(dt)
+        
         t_local += dt
         
         time_end = time.time()
@@ -861,6 +901,8 @@ def go_optimal_pose(p_center, radius=0.25):
             # print("dt_time", dt_time)
         else:
             dt_time = time.time() - time_start
+
+        rtde_c.waitPeriod(dt)
     #end_time = time.time() 
     #print(e)   
     #ellapsed_time = end_time - time_start
