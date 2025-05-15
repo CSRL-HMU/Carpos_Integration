@@ -1,0 +1,7 @@
+<launch>
+    <!-- Εκκίνηση του κόμβου gripper_control -->
+    <node name="gripper_control" pkg="gripper_control" type="gripper_control.py" output="screen">
+        <param name="serial_port" value="/dev/ttyUSB0"/>
+        <param name="baud_rate" value="115200"/>
+    </node>
+</launch>

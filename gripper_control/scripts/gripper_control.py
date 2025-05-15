@@ -18,13 +18,14 @@ class GripperControl:
         time.sleep(4)  # Allow time for the serial connection to initialize
 
         # Set initial position for the thumb placement
-        self.x_start, self.y_start, self.phi_start = 5.3, 2.5, -np.pi / 3
-        Q = self.inverse_kinematics(self.x_start, self.y_start, self.phi_start)
-        if Q is not None:
-            self.send_commands(10 + np.degrees(Q[0]), 140 + np.degrees(Q[1]), 145 + np.degrees(Q[2]))
+        #self.x_start, self.y_start, self.phi_start = 5.3, 2.5, -np.pi / 3
+        #Q = self.inverse_kinematics(self.x_start, self.y_start, self.phi_start)
+        #if Q is not None:
+        #    self.send_commands(10 + np.degrees(Q[0]), 140 + np.degrees(Q[1]), 145 + np.degrees(Q[2]))
+        self.send_angles(45,-45,-45)
+        self.send_actuator_command(0)  # Initial close fingers command
         rospy.sleep(1)
-        self.send_actuator_command(1)  # Initial close fingers command
-
+        
         # Set up subscribers for ROS topics
         rospy.Subscriber('finger_control', Bool, self.finger_callback)
         rospy.Subscriber('thumb_position', Float32MultiArray, self.thumb_callback)
@@ -88,7 +89,8 @@ class GripperControl:
 
     def thumb_callback(self, msg):
         x, y, phi = msg.data
-        Q = self.inverse_kinematics(x, y, phi)
+        #x, y, phi = np.rad2deg(msg.data)
+        Q = np.rad2deg(self.inverse_kinematics(x, y, phi))
         #self.move_along_trajectory(self.x_start, self.y_start, self.phi_start, x, y, phi, steps=10)
         self.send_angles(Q[0], Q[1], Q[2])
 
