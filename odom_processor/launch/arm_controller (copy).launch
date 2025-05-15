@@ -1,0 +1,3 @@
+<launch>
+    <node name="arm_controller" pkg="odom_processor" type="arm_state_machine.py" output="screen"/>
+</launch>

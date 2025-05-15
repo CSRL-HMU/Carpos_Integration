@@ -1,0 +1,11 @@
+<launch>
+    <!-- Εκκίνηση του Node που αποφασίζει τη θέση -->
+    <node name="arm_controller" pkg="odom_processor" type="arm_state_machine.py" output="screen"/>
+
+    <!-- Εκκίνηση του Node που κινεί τον βραχίονα -->
+    <node name="arm_movement" pkg="odom_processor" type="odom_processor_nodeNEW.py" output="screen"/>
+</launch>
+
+
+
+

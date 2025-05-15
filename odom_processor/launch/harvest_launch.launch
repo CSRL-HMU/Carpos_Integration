@@ -5,13 +5,17 @@
 
     <!-- Node για την εκτέλεση των κινήσεων στον UR10 -->
     <node pkg="CARPOS_amg" type="carpos_amg_node.py" name="carpos_amg" output="screen" launch-prefix="python3"/>
-
+ <node pkg="carpos_active_perception" type="carpos_active_perception_node.py" name="carpos_active_perception" output="screen" launch-prefix="python3"/>
+   
+   
     <!-- Start Tomato Detector Node -->
-    <node pkg="tomato_detector" type="tomato_detector.py" name="tomato_detector" output="screen">
-        <!--<param name="model_path" value="$(find tomato_detector)/models/keypoints_new.pt"/> -->
-        <param name="show_frame" value="True"/>
-        <param name="frame_id" value="zed_camera"/>
+    <node pkg="perception_node" type="perception_node.py" name="perception_node" output="screen">
+        <param name="model_path" value="$(find tomato_detector)/models/keypoints_new.pt"/>
+        <param name="show_frame" value="true"/>
+        <param name="frame_id" value="rs_camera"/>
     </node>
+   
+   
     <!-- Εκκίνηση του κόμβου gripper_control -->
     <node name="gripper_control" pkg="gripper_control" type="gripper_control.py" output="screen">
         <param name="serial_port" value="/dev/ttyUSB0"/>

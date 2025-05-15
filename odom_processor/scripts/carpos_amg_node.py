@@ -249,11 +249,11 @@ def amg_command_callback(data):
         elif data.motion_type == 'home':
             print('[AMG] Moving to home configuration: ')
             
-            qT = np.array([-180, -70, -120, 0, 90, -90 ])
+            qT = np.array([-183, -90, 120, 140, -90, 0 ])
             qT = qT * pi / 180
             print('qT = ', qT)
 
-            rtde_c.moveJ(qT, 0.5, 0.5)
+            rtde_c.moveJ(qT, 3, 0.5)
 
             # Get initial end-eefector pose
             q = np.array(rtde_r.getActualQ())

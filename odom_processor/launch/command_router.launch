@@ -1,0 +1,3 @@
+<launch>
+    <node name="command_router" pkg="odom_processor" type="ros_command_router.py" output="screen"/>
+</launch>

@@ -1,0 +1,12 @@
+<launch>
+    <!-- Εκκίνηση του Perception Node για τον εντοπισμό της τομάτας -->
+    <node name="perception" pkg="odom_processor" type="perception.py" output="screen" launch-prefix="python3"/>
+
+    <!-- Εκκίνηση του Gripper Controller για να μετακινηθεί στο frame της τομάτας -->
+    <node name="gripper" pkg="odom_processor" type="gripper.py" output="screen" launch-prefix="python3"/>
+
+    <!-- Εκκίνηση του Cutting Node που θα κόψει την τομάτα -->
+    <node name="cutting" pkg="odom_processor" type="cutting.py" output="screen" launch-prefix="python3"/>
+</launch>
+
+
