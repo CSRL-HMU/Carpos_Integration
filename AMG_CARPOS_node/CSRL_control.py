@@ -2,7 +2,6 @@ import numpy as np
 import sys
 
 sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
-
 from CSRL_orientation import *
 
 # gains for reaching and tracking respectively

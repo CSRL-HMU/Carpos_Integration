@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 # from custom_msgs.msg import HarvestCommand
 from CARPOS_amg.msg import amg_message
 import numpy as np
@@ -15,16 +15,17 @@ from CSRL_trajectory import *
 import rtde_receive
 import rtde_control
 import scipy.io 
-from spatialmath import SE3
+from spatialmath import SE3, SO3
+from geometry_msgs.msg import PoseStamped, Quaternion
+
 
 
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
 sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
-sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
-
 from CSRL_orientation import * 
 from CSRL_math import * 
+sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from dmpSE3 import * 
 
 
@@ -32,6 +33,9 @@ from dmpSE3 import *
 
 # Our status publisher 
 status_pub = rospy.Publisher('motion_status', String, queue_size=10)
+
+gripper_pose_pub = rospy.Publisher('gripper_pose',PoseStamped , queue_size=10)
+camera_pose_pub = rospy.Publisher('camera_pose', PoseStamped, queue_size=10)
 
 rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
 rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
@@ -59,8 +63,12 @@ ur = rt.DHRobot([
 ], name='UR10e')
 
 # # Define the tool
-tool_position = SE3(0.0, 0.0, 0.16)  # Position of the tool (in meters)
-ur.tool = tool_position 
+p_wrist_camera = SE3(-0.04, -0.0675, 0.067) #D415
+
+
+rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
+p_wrist_gripper = SE3(rotation_matrix) * SE3(0.0, 0.031, 0.04)  # Position of the tool (in meters)
+# ur.tool = tool_position 
 
 
 # Get initial end-eefector pose
@@ -97,11 +105,40 @@ def motion_finished_error():
     rospy.loginfo('Automatic motion generation, motion status: ' + status_str)
     status_pub.publish(status_str)
 
+
+# This is the callback function for the high level commands
+def amg_enable_robot(data):
+    global rtde_c, rtde_r
+    if data.data == True:
+        print('Connecting to the robot!')
+
+        if not rtde_c.isConnected():
+            rtde_c.reconnect()
+            rtde_r.reconnect()
+    else:
+        print('Disconnecting from the robot ...')
+        rtde_c.stopScript()
+        rtde_c.disconnect()
+        rtde_r.disconnect()
+
+
+
 # This is the callback function for the high level commands
 def amg_command_callback(data):
 
     T = data.duration
     t = 0
+
+    # default
+    ur.tool = p_wrist_camera
+
+    if data.end_effector == 'gripper':
+        ur.tool = p_wrist_gripper
+    elif data.end_effector == 'camera':
+        ur.tool = p_wrist_camera
+    else:
+        print('Going with the default end-effector (camera)')
+
 
     if data.space == 'task':
         
@@ -451,7 +488,7 @@ def amg_command_callback(data):
         elif data.motion_type == 'home':
             print('[AMG] Moving to home configuration: ')
             
-            qT = np.array([-180, -70, -120, 0, 90, -90 ])
+            qT = np.array([-183, -90, 120, 140, -90, 0])
             qT = qT * pi / 180
             print('qT = ', qT)
 
@@ -483,9 +520,61 @@ if __name__ == '__main__':
     rospy.init_node('carpos_amg', anonymous=True)
     rate = rospy.Rate(100) 
 
+    rospy.Subscriber("amg_enable_robot", Bool, amg_enable_robot)
+
     rospy.Subscriber("amg_command", amg_message, amg_command_callback)
  
     while not rospy.is_shutdown():
+
+        # Publish camera pose
+        ur.tool = p_wrist_camera
+        q = np.array(rtde_r.getActualQ())
+        g = ur.fkine(q)
+        R = np.array(g.R)
+        p = np.array(g.t)
+
+        msg = PoseStamped()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "camera"  # Update with your camera frame
+        # Set position (origin)
+        msg.pose.position.x = p[0]
+        msg.pose.position.y = p[1]
+        msg.pose.position.z = p[2]
+        # Compute orientation (rotation matrix to quaternion)
+        
+        quaternion = rot2quat(R)
+        msg.pose.orientation = Quaternion(
+            x=quaternion[1],
+            y=quaternion[2],
+            z=quaternion[3],
+            w=quaternion[0]
+        )
+        camera_pose_pub.publish(msg)
+
+        # Publish gripper pose
+        ur.tool = p_wrist_gripper
+        q = np.array(rtde_r.getActualQ())
+        q = np.array(rtde_r.getActualQ())
+        g = ur.fkine(q)
+        R = np.array(g.R)
+        p = np.array(g.t)
+
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "gripper"  # Update with your camera frame
+        # Set position (origin)
+        msg.pose.position.x = p[0]
+        msg.pose.position.y = p[1]
+        msg.pose.position.z = p[2]
+        # Compute orientation (rotation matrix to quaternion)
+        
+        quaternion = rot2quat(R)
+        msg.pose.orientation = Quaternion(
+            x=quaternion[1],
+            y=quaternion[2],
+            z=quaternion[3],
+            w=quaternion[0]
+        )
+        gripper_pose_pub.publish(msg)
 
         # motion_finished_error()
         
