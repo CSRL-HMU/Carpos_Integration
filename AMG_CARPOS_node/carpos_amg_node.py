@@ -29,7 +29,7 @@ sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from dmpSE3 import * 
 
 
-
+mutex_flag = False
 
 # Our status publisher 
 status_pub = rospy.Publisher('motion_status', String, queue_size=10)
@@ -62,13 +62,17 @@ ur = rt.DHRobot([
     rt.RevoluteDH(d = 0.11655)
 ], name='UR10e')
 
-# # Define the tool
-p_wrist_camera = SE3(-0.04, -0.0675, 0.067) #D415
+ur_pforPub = ur.copy()
 
+
+# # Define the tool
+rotation_matrix = SO3.AngVec(0, np.array([0,0,1]))
+p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.0675, 0.067) #D415
 
 rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
-p_wrist_gripper = SE3(rotation_matrix) * SE3(0.0, 0.031, 0.04)  # Position of the tool (in meters)
-# ur.tool = tool_position 
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.01, 0,  0.05)  # Position of the tool (in meters)
+# p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
+ur.tool = p_wrist_camera 
 
 
 # Get initial end-eefector pose
@@ -76,7 +80,7 @@ g0 = ur.fkine(q0)
 R0 = np.array(g0.R)
 p0 = np.array(g0.t)
 
-
+print('R0 (init) = ', R0 )
 
 # Control cycle
 dt = 0.002
@@ -126,21 +130,55 @@ def amg_enable_robot(data):
 # This is the callback function for the high level commands
 def amg_command_callback(data):
 
+    global ur
+
     T = data.duration
     t = 0
+
+    # ur.tool = p_wrist_gripper
+
+    # qtest = np.array(rtde_r.getActualQ())
+    # gtest = ur.fkine(qtest)
+    # Rtest = np.array(gtest.R)
+    # ptest = np.array(gtest.t)
+    # Qtest = rot2quat(Rtest)
+
+    # print('[AMG] Initial pose:')
+    # print('ptest (gripper) = ', ptest)
+    # print('Qtest (gripper) = ', Qtest)
+    # print('Rtest (gripper) = ', Rtest)
+
+    # ur.tool = p_wrist_camera
+
+    # qtest = np.array(rtde_r.getActualQ())
+    # gtest = ur.fkine(qtest)
+    # Rtest = np.array(gtest.R)
+    # ptest = np.array(gtest.t)
+    # Qtest = rot2quat(Rtest)
+
+    # print('[AMG] Initial pose:')
+    # print('ptest (camera) = ', ptest)
+    # print('Qtest (camera) = ', Qtest)
+    # print('Rtest (camera) = ', Rtest)
 
     # default
     ur.tool = p_wrist_camera
 
     if data.end_effector == 'gripper':
         ur.tool = p_wrist_gripper
+        print('Tool changed to gripper')
     elif data.end_effector == 'camera':
         ur.tool = p_wrist_camera
+        print('Tool changed to camera')
     else:
         print('Going with the default end-effector (camera)')
 
+    print('Tool pose wrt wrist:', ur.tool)
+
+   
 
     if data.space == 'task':
+        print('Tool pose wrt wrist (in the loop):', ur.tool)
         
         # get target
         pT = np.array( [data.target_pose.position.x, data.target_pose.position.y, data.target_pose.position.z] )
@@ -149,6 +187,8 @@ def amg_command_callback(data):
         print('[AMG] Received task target:')
         print('pT = ', pT)
         print('QT = ', QT)
+
+        print('RT = ', quat2rot(QT))
 
         # Get initial end-eefector pose
         q0 = np.array(rtde_r.getActualQ())
@@ -160,9 +200,10 @@ def amg_command_callback(data):
         print('[AMG] Initial pose:')
         print('p0 = ', p0)
         print('Q0 = ', Q0)
+        print('R0 = ', R0)
         p = p0
         Q = Q0
-        
+
        
         if data.motion_type == 'reach':
 
@@ -178,16 +219,22 @@ def amg_command_callback(data):
                 q = np.array(rtde_r.getActualQ())
 
                 # Get  end-eefector pose
+   
                 g = ur.fkine(q)
                 R = np.array(g.R)
                 p = np.array(g.t)
                 Q = rot2quat(R)
 
+        
                 # get full jacobian
                 J = np.array(ur.jacob0(q))
 
+    
                 # reaching control signal
                 qdot = kinReaching_SE3(p=p, A=R, pT=pT, AT=QT, J=J, kr = 5.0/T)
+
+
+    
 
                 rtde_c.speedJ(qdot, 1.0, dt)
 
@@ -195,6 +242,16 @@ def amg_command_callback(data):
 
 
         elif data.motion_type == 'poly':
+
+            print('Tool pose wrt wrist (in the loop):', ur.tool)
+
+            # q = np.array(rtde_r.getActualQ())
+
+            # # Get  end-eefector pose
+            # g = ur.fkine(q)
+            # R = np.array(g.R)
+            # print('R=',R)
+            # print('RT=',quat2rot(QT))
 
             
             print('[AMG] Moving with poly ... ')
@@ -211,11 +268,16 @@ def amg_command_callback(data):
                 # Get  end-eefector pose
                 g = ur.fkine(q)
                 R = np.array(g.R)
+                # print('R=',R)
+                # print('R0=',R)
                 p = np.array(g.t)
                 Q = rot2quat(R)
 
                 # get full jacobian
                 J = np.array(ur.jacob0(q))
+
+                # print('R0=',R0)
+                # print('RT=',quat2rot(QT))
 
                 #generate trajectory
                 pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t, T=T)
@@ -359,8 +421,6 @@ def amg_command_callback(data):
                 
                 # Get the actual joint values 
                 q = np.array(rtde_r.getActualQ())
-                if simOn:
-                    q = q_sim.copy()
 
                 # Get  end-efector pose
                 g = ur.fkine(q)
@@ -527,9 +587,9 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
 
         # Publish camera pose
-        ur.tool = p_wrist_camera
+        ur_pforPub.tool = p_wrist_camera
         q = np.array(rtde_r.getActualQ())
-        g = ur.fkine(q)
+        g = ur_pforPub.fkine(q)
         R = np.array(g.R)
         p = np.array(g.t)
 
@@ -552,10 +612,10 @@ if __name__ == '__main__':
         camera_pose_pub.publish(msg)
 
         # Publish gripper pose
-        ur.tool = p_wrist_gripper
+        ur_pforPub.tool = p_wrist_gripper
         q = np.array(rtde_r.getActualQ())
         q = np.array(rtde_r.getActualQ())
-        g = ur.fkine(q)
+        g = ur_pforPub.fkine(q)
         R = np.array(g.R)
         p = np.array(g.t)
 

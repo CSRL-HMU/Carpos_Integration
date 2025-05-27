@@ -77,7 +77,8 @@ class HarvestMotionNode:
         self.awaiting_kinesthetic_confirmation = False  # Για Kinesthetic
         self.awaiting_visual_obs_confirmation = False
 
-        
+        #self.detection_decision = None  # None: no input yet, 0: re-detect, 1: ok
+
     def send_cameraEN(self,state): 
         msg = Bool()
         msg.data = bool(state)  # Μετατροπή σε True/False
@@ -105,8 +106,8 @@ class HarvestMotionNode:
 
         rospy.loginfo(f"Sending Finger Command: {'OPEN (1)' if state == 1 else 'CLOSE (0)'}")
         self.finger_pub.publish(msg)
-        self.awaiting_finger_confirmation = True  # Μπαίνουμε σε αναμονή
-        self.wait_for_confirmation('/finger_status')
+        #self.awaiting_finger_confirmation = True  # Μπαίνουμε σε αναμονή
+        #self.wait_for_confirmation('/finger_status')
 
     def send_thumb_position(self, x, y, angle):
         """ 
@@ -120,8 +121,8 @@ class HarvestMotionNode:
 
         rospy.loginfo(f"Sending Thumb Position: x={x}, y={y}, angle={angle}")
         self.thumb_pub.publish(msg)
-        self.awaiting_thumb_confirmation = True  # Μπαίνουμε σε αναμονή
-        self.wait_for_confirmation('/thumb_status')
+        #self.awaiting_thumb_confirmation = True  # Μπαίνουμε σε αναμονή
+        #self.wait_for_confirmation('/thumb_status')
 
     def finger_status_callback(self, msg):
         """ 
@@ -229,7 +230,14 @@ class HarvestMotionNode:
                 self.wait_for_confirmation()  # Περιμένουμε success ή error
             
                 rospy.loginfo("URDF Model loaded and Robot moved to Home Position.")
-        
+            #elif command_int == 2:  # Re-detect
+            #    self.detection_decision = 0
+            #    rospy.loginfo("Detection decision set to: RE-DETECT")
+
+            #elif command_int == 3:  # Detection OK
+            #    self.detection_decision = 1
+            #    rospy.loginfo("Detection decision set to: OK")
+
             elif command_int == 4:  # Observation Pose
                 
                 rospy.loginfo("Executing Observation Pose...")
@@ -240,6 +248,28 @@ class HarvestMotionNode:
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
 
                 
+                #self.detection_decision = None  # reset flag
+                # while True:
+                #     self.send_cameraEN(True)
+                #     rospy.sleep(2.0)
+                #     self.send_cameraEN(False)
+
+                #     rospy.loginfo("Waiting for detection decision (Command 2 = RE-DETECT, Command 3 = OK)...")
+                #     rate = rospy.Rate(10)
+                #     timeout = rospy.Time.now() + rospy.Duration(30)
+                #     while self.detection_decision is None and rospy.Time.now() < timeout:
+                #         rate.sleep()
+
+                #     if self.detection_decision == 3:
+                #         rospy.loginfo("Detection confirmed. Proceeding.")
+                #         break
+                #     elif self.detection_decision == 2:
+                #         rospy.loginfo("Re-detecting as requested...")
+                #         self.detection_decision = None
+                #     else:
+                #         rospy.logwarn("No decision received. Repeating vision.")
+                #         self.detection_decision = None
+
                 while True:
                   
                     self.send_cameraEN(True)
@@ -249,14 +279,11 @@ class HarvestMotionNode:
                         rate.sleep()
                     self.send_cameraEN(False)
                  
-                 
-                    if command_int != 2:
-                        break
-                    elif command_int == 3:
-                        continue
 
-                    # if  input('Press: 0 -> re-detect,  1 -> Detection is ok .. ') != '0':
-                    #     break
+                
+
+                    if  input('Press: 0 -> re-detect,  1 -> Detection is ok .. ') != '0':
+                         break
 
 
 
@@ -280,7 +307,7 @@ class HarvestMotionNode:
 
                 
 
-                self.send_motion_command("task", "poly", self.gObservation, [0, 0, 0, 0, 0, 0], 10.0, 'camera')
+                self.send_motion_command("task", "reach", self.gObservation, [0, 0, 0, 0, 0, 0], 10.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=15.0)
                 if confirmation != "success":
                     rospy.logerr("Failed to move to observation pose. Aborting sequence.")
@@ -371,6 +398,8 @@ class HarvestMotionNode:
                 thumb_closed_position = [6, -2, -np.pi/3] # na orisoume se ti pose tha kleinei
                 rospy.loginfo(f"Moving Thumb to Closed Position: {thumb_closed_position}")
                 self.send_thumb_position(*thumb_closed_position)
+
+                time.sleep(1)
                 # Βήμα 6: Εκκίνηση Kinesthetic Correction
                 rospy.loginfo("Triggering Kinesthetic Correction...")
                 self.send_kinesthetic_command("start")
@@ -397,7 +426,28 @@ class HarvestMotionNode:
                 home_config = home_config * math.pi / 180
                 self.send_motion_command("joint", "home", home_pose, home_config, 3.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
+                
+                #self.detection_decision = None  # reset flag
+                # while True:
+                #     self.send_cameraEN(True)
+                #     rospy.sleep(2.0)
+                #     self.send_cameraEN(False)
 
+                #     rospy.loginfo("Waiting for detection decision (Command 2 = RE-DETECT, Command 3 = OK)...")
+                #     rate = rospy.Rate(10)
+                #     timeout = rospy.Time.now() + rospy.Duration(30)
+                #     while self.detection_decision is None and rospy.Time.now() < timeout:
+                #         rate.sleep()
+
+                #     if self.detection_decision == 3:
+                #         rospy.loginfo("Detection confirmed. Proceeding.")
+                #         break
+                #     elif self.detection_decision == 2:
+                #         rospy.loginfo("Re-detecting as requested...")
+                #         self.detection_decision = None
+                #     else:
+                #         rospy.logwarn("No decision received. Repeating vision.")
+                #         self.detection_decision = None
 
                 while True:
                   
@@ -472,28 +522,33 @@ class HarvestMotionNode:
                 #     return
 
                 # Θέση του Thumb για ανοιχτό Finger
-                thumb_open_position = [6, -2, -np.pi/4]
+                thumb_open_position = [6, -1, -np.pi/4]
                 rospy.loginfo(f"Moving Thumb to CLOSE Position: {thumb_open_position}")
                 self.send_thumb_position(*thumb_open_position)
                 #rospy.loginfo("Go Home process completed.")
                 # Βήμα 4: Μετακίνηση στην θέση καλαθιού
-                rospy.loginfo("Moving to Basket Position...")
-                basket_pose = self.get_basket_pose()
-                self.send_motion_command("task", "poly", basket_pose, [0, 0, 0, 0, 0, 0], 3.0, 'gripper')
+                
+                time.sleep(1)
+
+                #rospy.loginfo("Moving to Basket Position...")
+                #basket_pose = self.get_basket_pose()
+                #self.send_motion_command("task", "poly", basket_pose, [0, 0, 0, 0, 0, 0], 3.0, 'gripper')
+                #confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
+                #if confirmation != "success":
+                #    rospy.logerr("Failed to move to basket position. Aborting sequence.")
+                #    return
+                #self.current_phase = "basket"
+
+               
+                rospy.loginfo("Executing DMP...")
+                self.send_motion_command("task", "dmp", SE3(np.eye(4)), [0, 0, 0, 0, 0, 0], 3.0, 'gripper')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
                 if confirmation != "success":
-                    rospy.logerr("Failed to move to basket position. Aborting sequence.")
+                    rospy.logerr("Failed to move to DMP pose. Aborting sequence.")
                     return
-                self.current_phase = "basket"
+                self.current_phase = "DMP"
 
-                ########ANOIGMA gripper######
-                rospy.loginfo("OPEN Finger...")
-                self.send_finger_command(0)  # 1
-                thumb_open_position = [8, 4.5, 0]
-                rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
-                rospy.loginfo("Go Home process completed.")
-                
+
                 #################################
                 # Βήμα 6: Επιστροφή στην αρχική θέση (home)
                 rospy.loginfo("Returning to Home Position...")
@@ -506,6 +561,19 @@ class HarvestMotionNode:
                     rospy.logerr("Failed to return to home position. Aborting sequence.")
                     return
                 self.current_phase = "home"
+
+
+
+
+                 ########ANOIGMA gripper######
+                rospy.loginfo("OPEN Finger...")
+                self.send_finger_command(0)  # 1
+                thumb_open_position = [8, 4.5, 0]
+                rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
+                self.send_thumb_position(*thumb_open_position)
+                rospy.loginfo("Go Home process completed.")
+                
+
 
                 rospy.loginfo("Harvest Sequence Completed.")
         else:
@@ -573,12 +641,18 @@ class HarvestMotionNode:
         gtemp = np.hstack((R0T, p0T))
         gtemp = np.vstack((gtemp, np.array([0, 0, 0, 1])))
         #print(gtemp)
-        
+        try:
+            self.g0T =  self.g_0camera * SE3(gtemp)
+            self.gPregrasp = self.get_pregrasp_pose()
+            self.gGrasp = self.get_grasp_pose()
+            self.gObservation = self.get_observation_pose()
+        except Exception as ex:
+            print(f"Something went wrong: {ex}")
+            return
 
-        self.g0T =  self.g_0camera * SE3(gtemp)
-        self.gPregrasp = self.get_pregrasp_pose()
-        self.gGrasp = self.get_grasp_pose()
-        self.gObservation = self.get_observation_pose()
+
+        #print('gtemp : ' , gtemp )
+        #print('self.g0T : ' , self.g0T )
 
         # rospy.loginfo(f"Tomato pose: \n{self.g0T}")
         # rospy.loginfo(f"Pre-grasp pose: \n{self.gPregrasp}")
@@ -598,8 +672,9 @@ class HarvestMotionNode:
         f = scipy.io.loadmat('/home/carpos/catkin_ws/src/task_knowledge/graspPose.mat')
         ggrasp = np.array(f['ggrasp'],dtype = float)
         
+        #ggrasp[0, 3] = ggrasp[0, 3] + 0.1
         ggrasp[0, 3] = ggrasp[0, 3] + 0.1
-
+        ggrasp[2, 3] = ggrasp[2, 3] + 0.05
         # print('ggrasp=', ggrasp)
         # print('ggrasp shape=', ggrasp.shape)
         

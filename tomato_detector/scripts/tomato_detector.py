@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 # import pyrealsense2 as rs
 import cv2
 import numpy as np
@@ -5,18 +7,24 @@ from ultralytics import YOLO
 from collections import deque  # optional for fixed-size history
 import threading
 import time
-# import rospy
-# from geometry_msgs.msg import PoseStamped, Quaternion
-# from std_msgs.msg import Header
-# from tf.transformations import quaternion_from_matrix
+import rospy
+from geometry_msgs.msg import PoseStamped, Quaternion
+from std_msgs.msg import Header
+from tf.transformations import quaternion_from_matrix
 import pyzed.sl as sl  # ZED SDK
 
 class TomatoDetector:
-    def __init__(self, model_path='models/keypoints_new.pt', show_frame=True, history_size=50):
+    def __init__(self, model_path='/home/carpos/catkin_ws/src/tomato_detector/models/keypoints_new.pt', show_frame=True, history_size=50):
         # Initialize ROS node and ROS publisher for tomato pose
         rospy.init_node('tomato_detector', anonymous=True)
         self.pose_pub = rospy.Publisher('/tomato_pose', PoseStamped, queue_size=10)
 
+        # Load parameters from launch file
+        #self.model_path = rospy.get_param("~model_path", "models/keypoints_new.pt")
+        #self.show_frame = rospy.get_param("~show_frame", True)
+        self.frame_id = rospy.get_param("~frame_id", "zed_camera")
+        model_path='/home/carpos/catkin_ws/src/tomato_detector/models/keypoints_new.pt'
+        show_frame = True
         # Initialize ZED camera
         self.zed = sl.Camera()
         init_params = sl.InitParameters()

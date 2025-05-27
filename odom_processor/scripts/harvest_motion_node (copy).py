@@ -241,6 +241,7 @@ class HarvestMotionNode:
         ggrasp = f['ggrasp']
 
         ggrasp[0, 3] = ggrasp[0, 3] + 0.1
+        ggrasp[2, 3] = ggrasp[2, 3] + 0.05
 
         gTE = SE3(ggrasp)
         
