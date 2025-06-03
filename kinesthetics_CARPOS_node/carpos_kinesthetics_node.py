@@ -14,7 +14,8 @@ import scienceplots
 import getch
 import scipy.io as scio
 
-from spatialmath import SE3
+from spatialmath import SE3, SO3
+from sensor_msgs.msg import JointState
 
 
 
@@ -31,15 +32,15 @@ from dmpSE3 import *
 knowledge_path = "/home/carpos/catkin_ws/src/task_knowledge/"
 
 # Our status publisher 
-status_pub = rospy.Publisher('active_perception_status', String, queue_size=10)
+status_pub = rospy.Publisher('kinesthetic_status', String, queue_size=10)
+joint_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
+
+
 
 
 # Declare math pi
 pi = math.pi
 
-#define UR3e
-rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
-rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
 
 
 
@@ -54,8 +55,11 @@ ur = rt.DHRobot([
 ], name='UR10e')
 
 # # Define the tool
-tool_position = SE3(0.0, 0.0, 0.16)  # Position of the tool (in meters)
-ur.tool = tool_position 
+# tool_position = SE3(0.0, 0.0, 0.16)  # Position of the tool (in meters)
+rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.01, 0,  0.05)  # Position of the tool (in meters)
+# p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
+ur.tool = p_wrist_gripper 
 
 kernelType = 'Gaussian' # other option: sinc
 canonicalType = 'linear' # other option: exponential
@@ -63,12 +67,31 @@ canonicalType = 'linear' # other option: exponential
 
 dt = 0.002
 
+def publish_joint_states(q):
+    global joint_pub
+    
+
+    msg = JointState()
+    msg.name = ["ur10_shoulder_pan_joint", "ur10_shoulder_lift_joint", "ur10_elbow_joint",
+                "ur10_wrist_1_joint", "ur10_wrist_2_joint", "ur10_wrist_3_joint"]
+    msg.position = q # Your custom function
+    msg.header.stamp = rospy.Time.now()
+    joint_pub.publish(msg)
 
 
 
 # This is the callback function for the high level commands
 def kinesthetic_correction_callback(data):
-    global pi, status_pub, knowledge_path
+    global pi, status_pub, knowledge_path, ur, dt, kernelType, canonicalType
+
+
+    print('[Kinesthetics node] Running kinesthetic correction.....')
+
+
+    #define UR3e
+    rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
+    rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
+
 
 
     # Gains
@@ -375,6 +398,8 @@ def kinesthetic_correction_callback(data):
         
         # set joint speed
         rtde_c.speedJ(qdot_command, 10.0, dt) # comment for Kinesthetic only
+
+        publish_joint_states(np.array(rtde_r.getActualQ()))
         
 
         # log data
@@ -395,6 +420,12 @@ def kinesthetic_correction_callback(data):
         rtde_c.waitPeriod(t_start)
 
     rtde_c.speedStop()
+
+    print('[Kinesthetic Node] Disconnecting from the robot ...')
+    # rtde_c.stopScript()
+    rtde_c.disconnect()
+    rtde_r.disconnect()
+  
 
 
     # Write the data to a file 
@@ -428,7 +459,7 @@ def kinesthetic_correction_callback(data):
     dmpTask_corrected = dmpSE3(N_in=20, T_in=t[-1])
 
 
-    dmpTask_corrected.train(dt, p_train, Q_train, True)
+    dmpTask_corrected.train(dt, p_train, Q_train, False)
 
 
     print("Training completed. The new dmp_model is saved.")

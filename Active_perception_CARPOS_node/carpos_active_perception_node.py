@@ -40,6 +40,7 @@ knowledge_path = "/home/carpos/catkin_ws/src/task_knowledge/"
 status_pub = rospy.Publisher('active_perception_status', String, queue_size=10)
 
 
+
 # Declare math pi
 pi = math.pi
 
@@ -51,6 +52,30 @@ grasp_g = np.identity(4)
 hand_g = np.identity(4)
 tomato_g = np.identity(4)
 iteration_counter = 0
+
+ok_redect_pressed = False
+detection_decision = 0
+
+actObs_enabled = False
+
+
+def ok_redetect_callback(msg):
+        global ok_redect_pressed, detection_decision, actObs_enabled
+
+
+        if actObs_enabled:
+            ok_redect_pressed = True
+
+
+            detection_decision = 0
+            if msg.data == 'ok':
+                detection_decision = 1
+        
+        else:
+            pass
+
+        return
+     
 
 
 
@@ -140,8 +165,10 @@ def get_tomato_pose_from_vision(data):
 
 # This is the callback function for the high level commands
 def start_observation_callback(data):
-    global zed, Kcamera, ph, image_width, image_height, iteration_counter, hand_g
+    global zed, Kcamera, ph, image_width, image_height, iteration_counter, hand_g, ok_redect_pressed, detection_decision, actObs_enabled
 
+
+    actObs_enabled = True
 
     # Enable the vision node
     msg = Bool()
@@ -160,14 +187,25 @@ def start_observation_callback(data):
 
     iteration_counter = iteration_counter + 1
 
-
-    while True:
+    continue_flag = False
+    while not continue_flag:
                   
         detect_and_save_grasp(data)
+
+        print('Is the initial pose correct?')
         
         
-        if  input('Press: 0 -> re-detect,  1 -> Detection is ok .. ') != '0':
-            break
+        while True:
+            if ok_redect_pressed:
+
+                print('Ok_redetect pressed !!!!   ', detection_decision)
+
+                ok_redect_pressed = False
+
+                if detection_decision != 0:
+                    continue_flag = True
+
+                break
     
     
 
@@ -299,6 +337,8 @@ def start_observation_callback(data):
     rospy.loginfo('[Active perception node]  Status: ' + status_str)
     status_pub.publish(status_str)
 
+    actObs_enabled = False
+
 
     
 
@@ -316,6 +356,9 @@ if __name__ == '__main__':
     rospy.Subscriber("/hand_pose", PoseStamped, get_hand_pose_from_vision)
     rospy.Subscriber("/tomato_pose", PoseStamped, get_tomato_pose_from_vision)
     rospy.Subscriber("/keypoints", Float32MultiArray, get_features_from_vision)
+
+    rospy.Subscriber('/ok_redetect', String, ok_redetect_callback, buff_size=1)
+
 
     print('[Active perception node] The subscribers are initialized.')
     print('[Active perception node] Waiting for commands.')

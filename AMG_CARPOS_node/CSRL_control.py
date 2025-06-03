@@ -8,6 +8,15 @@ from CSRL_orientation import *
 kt = 4.0
 
 
+
+def wpinv(J):
+
+    W = np.eye(8)
+    W[6,6] = 10
+    W[7,7] = 10
+    invW = np.linalg.inv(W)
+    return invW @ J.T @ np.linalg.inv(J @ invW @ J.T)
+
 # kinametic controller for reaching in Ndof
 def kinReaching_Ndof(x, xT, kr):
     qdot = - kr * (x - xT)
@@ -20,24 +29,24 @@ def kinTracking_Ndof(x, xd, xd_dot):
 
 # kinametic controller for reaching in end-effector position space
 def kinReaching_R3(p, pT, Jp, kr):
-    qdot = np.linalg.pinv(Jp , 0.01) @ ( - kr * (p - pT) )
+    qdot = wpinv(Jp) @ ( - kr * (p - pT) )
     return qdot
 
 # kinametic controller for reaching in end-effector position space
 def kinTracking_R3(p, pd, pd_dot, Jp):
-    qdot = np.linalg.pinv(Jp , 0.01) @ ( pd_dot - kt * (p - pd) )
+    qdot = wpinv(Jp) @ ( pd_dot - kt * (p - pd) )
     return qdot
 
 # kinametic controller for reaching in end-effector orientation space
 def kinReaching_SO3(A, AT, Jo, kr):
     eo = logError(A, AT)
-    qdot = np.linalg.pinv(Jo , 0.01) @ ( - kr * eo )
+    qdot = wpinv(Jo) @ ( - kr * eo )
     return qdot
 
 # kinametic controller for reaching in end-effector orientation space
 def kinTracking_SO3(A, Ad, omegad, Jo):
     eo = logError(A, Ad)
-    qdot = np.linalg.pinv(Jo , 0.01) @ ( omegad - kt * eo )
+    qdot = wpinv(Jo) @ ( omegad - kt * eo )
     return qdot
 
 # kinametic controller for reaching in end-effector generalized SE3 space
@@ -45,16 +54,21 @@ def kinReaching_SE3(p, A, pT, AT, J, kr):
     ep = p - pT
     eo = logError(A, AT)
     e = np.concatenate((ep,eo))
-    qdot = np.linalg.pinv(J , 0.01) @ ( - kr * e )
+    qdot = wpinv(J) @ ( - kr * e )
     return qdot
 
 # kinametic controller for reaching in end-effector generalized SE3 space
-def kinTracking_SE3(p, A, pd, Ad, pd_dot, omegad, J):
+def kinTracking_SE3(p, A, pd, Ad, pd_dot, omegad, J, weightedEn = True):
     ep = p - pd
     eo = logError(A, Ad)
     e = np.concatenate((ep,eo))
     v = np.concatenate((pd_dot,omegad))
-    qdot = np.linalg.pinv(J , 0.01) @ ( v - kt * e )
+    if weightedEn:
+        qdot = wpinv(J) @ ( v - kt * e )
+    else:
+        qdot = np.linalg.pinv(J) @ ( v - kt * e )
+
+        
     return qdot
 
 

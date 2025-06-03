@@ -7,12 +7,16 @@ import rtde_receive
 import rtde_control
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool
 import rospy
+from sensor_msgs.msg import JointState
+import rospy
+
 
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
 sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
 from CSRL_math import *
 from CSRL_orientation import *
+
 
 
 
@@ -31,6 +35,21 @@ import seaborn as sns
 import pandas as pd
 import os
 from scipy.io import savemat
+
+
+joint_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
+
+def publish_joint_states(q):
+    global joint_pub
+    
+
+    msg = JointState()
+    msg.name = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+    msg.position = q  # Your custom function
+    msg.header.stamp = rospy.Time.now()
+    joint_pub.publish(msg)
+
 
 
 
@@ -67,7 +86,7 @@ features = np.zeros(18)
 confidence = np.zeros(6)
 
 duration = 5.0
-dt = 0.002
+dt = 0.02
 
 Rec = np.identity(3)
 
@@ -94,7 +113,8 @@ def objective_function_with_kalman(params, rtde_r, UR_robot, T_des,p_center):
     
     phi, theta = params
     # Parameter constraints
-    if not (np.pi/8< phi <= np.pi/2-0.3) or not (np.pi/8< theta <=  np.pi/2-0.3):
+    # [[np.pi/8,np.pi/2-0.3], [-np.pi/4,np.pi/2-0.3]]
+    if not (-np.pi/4< phi <= np.pi/4) or not (-np.pi/4< theta <=  np.pi/2-0.3):
         return -np.inf  # Penalize invalid parameters
    
     
@@ -535,7 +555,7 @@ def get_features_from_vision(data):
 
 
 
-def go_optimal_pose(p_center, radius=0.25):
+def go_optimal_pose(p_center, radius=0.35):
 
 
 
@@ -554,7 +574,7 @@ def go_optimal_pose(p_center, radius=0.25):
     tcp_offset = [-0.04, -0.0675, 0.067, 0, 0, 0]
     # rtde_c.setTcp(tcp_offset)
     
-    rtde_c.setTcp(tcp_offset)
+    # rtde_c.setTcp(tcp_offset)
     # B) UR Robot Model
     pi = math.pi
     # UR_robot = rt.DHRobot([
@@ -646,14 +666,15 @@ def go_optimal_pose(p_center, radius=0.25):
 
     # CMA-ES Optimization with Multiple Experiments
     for experiment_index in range(1):
-        phi0   = np.pi/6
-        theta0 = np.pi/3
+        phi0   = 0
+        theta0 = -np.pi/6
+        # theta0 = np.pi/3
 
 
         # phi0   = 0.8
         # theta0 = 0.5
         
-        input('When UR ready :)...please press "Enter"...')
+        # input('When UR ready :)...please press "Enter"...')
 
         
 
@@ -662,7 +683,8 @@ def go_optimal_pose(p_center, radius=0.25):
 
         # for exper in range(num_of_experiments):
         initial_parameters = np.array([phi0,theta0])
-        cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
+        # cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
+        cma_bounds = np.array([[-np.pi/4, np.pi/4], [-np.pi/4,np.pi/2-0.3]])
         steps = 0.01*np.ones(2)  # 
 
         population_size =3
@@ -718,8 +740,9 @@ def go_optimal_pose(p_center, radius=0.25):
 
                     # Reset simulation time, 
                     t_local = 0.0
-                    t_start = rtde_c.initPeriod()
+                    
                     while t_local < seg_time and not stop_signal:
+                        t_start = rtde_c.initPeriod()
                     
                         time_start = time.time()
                         #t = t_local
@@ -754,6 +777,7 @@ def go_optimal_pose(p_center, radius=0.25):
 
                         # 6) command speed
                         rtde_c.speedJ(qdot, 1.0, dt)
+                        publish_joint_states(np.array(rtde_r.getActualQ()))
                     
 
                         # (vi) Partial cost (Kalman + detections)
@@ -798,10 +822,10 @@ def go_optimal_pose(p_center, radius=0.25):
                             
                             #step_count = 0
                         
-                    #
+                        #
                         if stop_signal:
                             break
-                        rtde_c.waitPeriod(dt)
+                        
                         t_local   += dt
                         #rtde_c.waitPeriod(dt)
                         time_end = time.time()
@@ -817,6 +841,12 @@ def go_optimal_pose(p_center, radius=0.25):
                             # print("dt_time", dt_time)
                             
                         # loop_time.append(elapsed_time)
+
+
+
+                        # print('real_dt = ', time.time() - time_start)
+
+                        rtde_c.waitPeriod(t_start)
 
                 
 
@@ -845,10 +875,11 @@ def go_optimal_pose(p_center, radius=0.25):
         t_local = 0.0
         rtde_c.speedStop()
     
-    input("Press 'Enter' to go to the Optimal Pose!")
+    # input("Press 'Enter' to go to the Optimal Pose!")
     best_params, best_reward = max(best_results, key=lambda x: x[1])
     print("Best Params", best_params)
     print("Best_reward",best_reward)
+    print("Going to optimal pose...")
     
     phi1 = best_params[0]
     theta1 = best_params[1]
@@ -888,6 +919,7 @@ def go_optimal_pose(p_center, radius=0.25):
 
         # 6) command speed
         rtde_c.speedJ(qdot, 1.0, dt)
+        publish_joint_states(np.array(rtde_r.getActualQ()))
         
         t_local += dt
         
@@ -902,7 +934,10 @@ def go_optimal_pose(p_center, radius=0.25):
         else:
             dt_time = time.time() - time_start
 
-        rtde_c.waitPeriod(dt)
+        
+
+
+        rtde_c.waitPeriod(t_start)
     #end_time = time.time() 
     #print(e)   
     #ellapsed_time = end_time - time_start
@@ -910,6 +945,11 @@ def go_optimal_pose(p_center, radius=0.25):
     print("Finish")
     #print(f"time: {ellapsed_time}")
     rtde_c.speedStop()
+
+    print('Disconnecting from the robot ...')
+    # rtde_c.stopScript()
+    rtde_c.disconnect()
+    rtde_r.disconnect()
   
 
 

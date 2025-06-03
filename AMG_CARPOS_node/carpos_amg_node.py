@@ -16,7 +16,9 @@ import rtde_receive
 import rtde_control
 import scipy.io 
 from spatialmath import SE3, SO3
-from geometry_msgs.msg import PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, PoseWithCovariance, Twist
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 
 
 
@@ -29,6 +31,134 @@ sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from dmpSE3 import * 
 
 
+
+
+def test_callback(data):
+
+    print('Test callback !!!')
+
+    for i in range(2000):
+                
+        t_start = rtde_c.initPeriod()
+        
+
+        q_dot = np.zeros(8)
+        if i < 1000:
+            V = np.array([0.10, 0.0, 0, 0, 0, -0.0])
+
+            J = get_robot_Jacobian()
+
+            q_dot = wpinv(J) @ V 
+            print(q_dot)
+
+        set_commanded_velocities(q_dot)
+
+        rtde_c.waitPeriod(t_start)
+
+  
+    
+
+
+def husky_pose_callback(data):
+
+    global g_0husk
+
+
+    p = np.array([data.pose.pose.position.x,  data.pose.pose.position.y, data.pose.pose.position.z]) 
+    # Compute orientation (rotation matrix to quaternion)
+    Q = np.array([data.pose.pose.orientation.w, data.pose.pose.orientation.x, data.pose.pose.orientation.y, data.pose.pose.orientation.z])
+
+    g_0husk_odom = SE3()
+    g_0husk_odom.R = quat2rot(Q)
+    g_0husk_odom.t = p
+
+    husky_top_center_offset = SE3(-0.035, 0 ,0.397) # This is for adding the offset from the husky's center to the UR base
+    g_0husk = g_0husk_odom * husky_top_center_offset
+
+    # print(g_0husk)
+
+
+def get_ee_pose():
+    global ur, rtde_c, rtde_r, g_0husk
+
+    q_ur = np.array(rtde_r.getActualQ())
+
+    g_huske = ur.fkine(q_ur[0:6])
+    g_0e = g_0husk * g_huske
+
+
+    R_0e = np.array(g_0e.R)
+    p_0e  = np.array(g_0e.t)
+    Q_0e  = rot2quat(R_0e)
+
+    return p_0e , R_0e , Q_0e 
+
+
+def get_cee_pose():
+    global ur, rtde_c, rtde_r
+
+    q_ur = np.array(rtde_r.getActualQ())
+
+    g_huske = ur.fkine(q_ur[0:6])
+
+
+    R_huske = np.array(g_huske.R)
+    p_huske  = np.array(g_huske.t)
+    Q_huske  = rot2quat(R_huske)
+
+    return p_huske , R_huske , Q_huske 
+    
+    
+
+
+def get_robot_Jacobian():
+    global ur, rtde_c, rtde_r, g_0husk
+
+    q_ur = np.array(rtde_r.getActualQ())
+
+    J_ur = ur.jacob0(q_ur)
+
+    g_huske = ur.fkine(q_ur[0:6])
+    
+    p_huske  = np.array(g_huske.t)
+    p_ehusk =  - p_huske
+
+    R_0husk =  g_0husk.R
+
+    A = np.zeros((6,2))
+
+    A[0,0] = 1
+    A[5,1] = 1
+    A[0:3,1] = skewSymmetric(p_ehusk) @ np.array([0, 0, 1])
+
+    RR = np.zeros((6,6))
+
+    RR[0:3,0:3] = R_0husk
+    RR[3:6,3:6] = R_0husk
+
+    J = RR @ np.hstack((J_ur, A))
+
+    return J
+
+
+def set_commanded_velocities(q_dot_c):
+    global ur, rtde_c, rtde_r, g_0husk
+
+    rtde_c.speedJ(q_dot_c[0:6], 1.0, dt)
+    
+
+    v_husk = Twist()
+    v_husk.linear.x = q_dot_c[6]  
+    v_husk.angular.z = q_dot_c[7]  
+
+    husky_pub.publish(v_husk)
+
+    publish_joint_states(np.array(rtde_r.getActualQ()))
+
+    return
+
+
+
 mutex_flag = False
 
 # Our status publisher 
@@ -36,6 +166,12 @@ status_pub = rospy.Publisher('motion_status', String, queue_size=10)
 
 gripper_pose_pub = rospy.Publisher('gripper_pose',PoseStamped , queue_size=10)
 camera_pose_pub = rospy.Publisher('camera_pose', PoseStamped, queue_size=10)
+
+camera_pose_ur_pub = rospy.Publisher('camera_pose_ur', PoseStamped, queue_size=10)
+
+husky_pub = rospy.Publisher('/husky_velocity_controller/cmd_vel', Twist, queue_size=10)
+
+joint_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
 
 rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
 rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
@@ -76,11 +212,10 @@ ur.tool = p_wrist_camera
 
 
 # Get initial end-eefector pose
-g0 = ur.fkine(q0)
-R0 = np.array(g0.R)
-p0 = np.array(g0.t)
+# g0 = ur.fkine(q0)
+# R0 = np.array(g0.R)
+# p0 = np.array(g0.t)
 
-print('R0 (init) = ', R0 )
 
 # Control cycle
 dt = 0.002
@@ -88,12 +223,26 @@ dt = 0.002
 # initialize qdot
 qdot = np.zeros(6)
 
-print('p0 = ', p0)
-print('R0 = ', R0)
 
 
 # The path in which the knowledge is stored
 knowledge_path = "/home/carpos/catkin_ws/src/task_knowledge/"
+
+
+g_0husk = SE3(np.eye(4))
+
+
+def publish_joint_states(q):
+    global joint_pub
+    
+
+    msg = JointState()
+    msg.name = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+    msg.position = q  # Your custom function
+    msg.header.stamp = rospy.Time.now()
+    joint_pub.publish(msg)
+
 
 
 
@@ -119,9 +268,11 @@ def amg_enable_robot(data):
         if not rtde_c.isConnected():
             rtde_c.reconnect()
             rtde_r.reconnect()
+
+            time.sleep(3)
     else:
         print('Disconnecting from the robot ...')
-        rtde_c.stopScript()
+        # rtde_c.stopScript()
         rtde_c.disconnect()
         rtde_r.disconnect()
 
@@ -135,31 +286,6 @@ def amg_command_callback(data):
     T = data.duration
     t = 0
 
-    # ur.tool = p_wrist_gripper
-
-    # qtest = np.array(rtde_r.getActualQ())
-    # gtest = ur.fkine(qtest)
-    # Rtest = np.array(gtest.R)
-    # ptest = np.array(gtest.t)
-    # Qtest = rot2quat(Rtest)
-
-    # print('[AMG] Initial pose:')
-    # print('ptest (gripper) = ', ptest)
-    # print('Qtest (gripper) = ', Qtest)
-    # print('Rtest (gripper) = ', Rtest)
-
-    # ur.tool = p_wrist_camera
-
-    # qtest = np.array(rtde_r.getActualQ())
-    # gtest = ur.fkine(qtest)
-    # Rtest = np.array(gtest.R)
-    # ptest = np.array(gtest.t)
-    # Qtest = rot2quat(Rtest)
-
-    # print('[AMG] Initial pose:')
-    # print('ptest (camera) = ', ptest)
-    # print('Qtest (camera) = ', Qtest)
-    # print('Rtest (camera) = ', Rtest)
 
     # default
     ur.tool = p_wrist_camera
@@ -191,11 +317,13 @@ def amg_command_callback(data):
         print('RT = ', quat2rot(QT))
 
         # Get initial end-eefector pose
-        q0 = np.array(rtde_r.getActualQ())
-        g0 = ur.fkine(q0)
-        R0 = np.array(g0.R)
-        p0 = np.array(g0.t)
-        Q0 = rot2quat(R0)
+        # q0 = np.array(rtde_r.getActualQ())
+        # g0 = ur.fkine(q0)
+        # R0 = np.array(g0.R)
+        # p0 = np.array(g0.t)
+        # Q0 = rot2quat(R0)
+
+        p0, R0, Q0 = get_ee_pose()
 
         print('[AMG] Initial pose:')
         print('p0 = ', p0)
@@ -215,28 +343,18 @@ def amg_command_callback(data):
                 #integrate time
                 t = t + dt
                 
-                # get q
-                q = np.array(rtde_r.getActualQ())
-
-                # Get  end-eefector pose
-   
-                g = ur.fkine(q)
-                R = np.array(g.R)
-                p = np.array(g.t)
-                Q = rot2quat(R)
-
+                p, R, Q = get_ee_pose()
         
                 # get full jacobian
-                J = np.array(ur.jacob0(q))
+                J = get_robot_Jacobian()
 
     
                 # reaching control signal
                 qdot = kinReaching_SE3(p=p, A=R, pT=pT, AT=QT, J=J, kr = 5.0/T)
 
-
+                set_commanded_velocities(qdot)
+                
     
-
-                rtde_c.speedJ(qdot, 1.0, dt)
 
                 rtde_c.waitPeriod(t_start)
 
@@ -244,14 +362,6 @@ def amg_command_callback(data):
         elif data.motion_type == 'poly':
 
             print('Tool pose wrt wrist (in the loop):', ur.tool)
-
-            # q = np.array(rtde_r.getActualQ())
-
-            # # Get  end-eefector pose
-            # g = ur.fkine(q)
-            # R = np.array(g.R)
-            # print('R=',R)
-            # print('RT=',quat2rot(QT))
 
             
             print('[AMG] Moving with poly ... ')
@@ -262,30 +372,21 @@ def amg_command_callback(data):
                 #integrate time
                 t = t + dt
                 
-                # get q
-                q = np.array(rtde_r.getActualQ())
+            
 
-                # Get  end-eefector pose
-                g = ur.fkine(q)
-                R = np.array(g.R)
-                # print('R=',R)
-                # print('R0=',R)
-                p = np.array(g.t)
-                Q = rot2quat(R)
+                p, R, Q = get_ee_pose()
 
+                
                 # get full jacobian
-                J = np.array(ur.jacob0(q))
-
-                # print('R0=',R0)
-                # print('RT=',quat2rot(QT))
-
+                J = get_robot_Jacobian()
+            
                 #generate trajectory
                 pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t, T=T)
 
                 # tracking control signal
                 qdot = kinTracking_SE3(p=p, A=R, pd=pd, Ad=Rd, pd_dot=pd_dot, omegad=omegad, J=J)
 
-                rtde_c.speedJ(qdot, 1.0, dt)
+                set_commanded_velocities(qdot)
 
                 rtde_c.waitPeriod(t_start)
 
@@ -344,11 +445,11 @@ def amg_command_callback(data):
             q_sim = q0.copy()
 
             #get initial end effector position 
-            g0rob = ur.fkine(q0)
-            R0rob = np.array(g0rob.R)
-            p0rob = np.array(g0rob.t)
-            Q0rob = rot2quat(R0rob)
-
+            # g0rob = ur.fkine(q0)
+            # R0rob = np.array(g0rob.R)
+            # p0rob = np.array(g0rob.t)
+            # Q0rob = rot2quat(R0rob)
+            p0rob, R0rob, Q0rob = get_ee_pose()
 
             #initialize DMP state
 
@@ -376,7 +477,7 @@ def amg_command_callback(data):
             t = 0
 
 
-            while z < 1.2:
+            while z < 1.5:
 
             
                 t_start = rtde_c.initPeriod()
@@ -419,14 +520,14 @@ def amg_command_callback(data):
                 omegadw = R0rob @ omegad
 
                 
-                # Get the actual joint values 
-                q = np.array(rtde_r.getActualQ())
+                # # Get the actual joint values 
+                # q = np.array(rtde_r.getActualQ())
 
-                # Get  end-efector pose
-                g = ur.fkine(q)
-                R = np.array(g.R)
-                p = np.array(g.t)
-
+                # # Get  end-efector pose
+                # g = ur.fkine(q)
+                # R = np.array(g.R)
+                # p = np.array(g.t)
+                p, R, Q_nouse = get_ee_pose()
                 
                 
 
@@ -445,24 +546,36 @@ def amg_command_callback(data):
                 omegadw = R0rob @ omegad
 
                 # get full jacobian
-                J = np.array(ur.jacob0(q))
+                # J = np.array(ur.jacob0(q))
+                J = get_robot_Jacobian()
 
+                
+                qdot_command = np.zeros(8)
                 # commanded joint velocity
-                qdot_command = kinTracking_SE3(p=p, A=Q, pd=pdw, Ad=Qdw, pd_dot=dot_pdw, omegad=omegadw, J=J)
+                qdot_command[0:6] = kinTracking_SE3(p=p, A=Q, pd=pdw, Ad=Qdw, pd_dot=dot_pdw, omegad=omegadw, J=J[:,0:6], weightedEn = False)
 
+            
 
                     
                 # qdot = np.zeros(6)
                 
-                QT = Qdw.copy()
-                pT = pdw.copy()
+                
+
+                # print('Q=',Q)
+                # print('Qdw=',Qdw)
+                # print('||eo||=',np.linalg.norm(logError(Q,Qdw)))
+
+
 
                 # set joint speed
-                rtde_c.speedJ(qdot_command, 1, dt) # comment for Kinesthetic only
-                
+                # rtde_c.speedJ(qdot_command, 1, dt) # comment for Kinesthetic only
+                set_commanded_velocities(qdot_command)
 
                 # synchronize
                 rtde_c.waitPeriod(t_start)
+
+            QT = Qdw.copy()
+            pT = pdw.copy()
                 
             
             
@@ -493,6 +606,8 @@ def amg_command_callback(data):
 
         print('[AMG] Initial configuration:')
         print('q0 = ', q0)
+
+        
 
 
         if data.motion_type == 'reach':
@@ -583,15 +698,35 @@ if __name__ == '__main__':
     rospy.Subscriber("amg_enable_robot", Bool, amg_enable_robot)
 
     rospy.Subscriber("amg_command", amg_message, amg_command_callback)
+
+    rospy.Subscriber('/husky_velocity_controller/odom', Odometry, husky_pose_callback)
+
+
+
+    rospy.Subscriber('/amg_test', String, test_callback)
+
+
+    for i in range(1000):
+        time.sleep(0.001)
+
+
+
+    p0, R0, Q0 = get_ee_pose()
+
+    print('p0 = ', p0 )
+    print('R0 = ', R0 )
+    print('Q0 = ', Q0 )
+    
  
     while not rospy.is_shutdown():
 
         # Publish camera pose
         ur_pforPub.tool = p_wrist_camera
-        q = np.array(rtde_r.getActualQ())
-        g = ur_pforPub.fkine(q)
-        R = np.array(g.R)
-        p = np.array(g.t)
+        # q = np.array(rtde_r.getActualQ())
+        # g = ur_pforPub.fkine(q)
+        # R = np.array(g.R)
+        # p = np.array(g.t)
+        p, R, Q = get_ee_pose()
 
         msg = PoseStamped()
         msg.header.stamp = rospy.Time.now()
@@ -611,13 +746,42 @@ if __name__ == '__main__':
         )
         camera_pose_pub.publish(msg)
 
+
+        p, R, Q = get_cee_pose()
+
+        msg = PoseStamped()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "camera"  # Update with your camera frame
+        # Set position (origin)
+        msg.pose.position.x = p[0]
+        msg.pose.position.y = p[1]
+        msg.pose.position.z = p[2]
+        # Compute orientation (rotation matrix to quaternion)
+        
+        quaternion = rot2quat(R)
+        msg.pose.orientation = Quaternion(
+            x=quaternion[1],
+            y=quaternion[2],
+            z=quaternion[3],
+            w=quaternion[0]
+        )
+
+
+        camera_pose_ur_pub.publish(msg)
+
+
+
+
+
+
         # Publish gripper pose
         ur_pforPub.tool = p_wrist_gripper
-        q = np.array(rtde_r.getActualQ())
-        q = np.array(rtde_r.getActualQ())
-        g = ur_pforPub.fkine(q)
-        R = np.array(g.R)
-        p = np.array(g.t)
+        # q = np.array(rtde_r.getActualQ())
+        # q = np.array(rtde_r.getActualQ())
+        # g = ur_pforPub.fkine(q)
+        # R = np.array(g.R)
+        # p = np.array(g.t)
+        p, R, Q = get_ee_pose()
 
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = "gripper"  # Update with your camera frame
@@ -635,6 +799,13 @@ if __name__ == '__main__':
             w=quaternion[0]
         )
         gripper_pose_pub.publish(msg)
+
+        # p, R, Q = get_ee_pose()
+
+        # print('[main] p=', p)
+        # print('[main] R=', R)
+        # print('[main] Q=', Q)
+   
 
         # motion_finished_error()
         
