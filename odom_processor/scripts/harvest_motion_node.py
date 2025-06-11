@@ -238,6 +238,15 @@ class HarvestMotionNode:
                 
                 print("========================================================================== COMMAND 4 =========================================================================")
                 self.enable_robot_pub.publish(True)
+
+                rospy.loginfo("OPEN Finger...")
+                self.send_finger_command(0)  # 1
+                thumb_open_position = [8, 4.5, 0]
+                rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
+                self.send_thumb_position(*thumb_open_position)
+           
+                
+                
                 rospy.loginfo("Go to HOME POSE...")
 
                 home_pose = SE3(np.eye(4))
@@ -246,7 +255,7 @@ class HarvestMotionNode:
                 self.send_motion_command("joint", "home", home_pose, home_config, 3.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
             
-                rospy.loginfo("STAUS:Home Position.")
+                rospy.loginfo("STATUS:Home Position.")
                 self.enable_robot_pub.publish(False)
 
                 time.sleep(4)
@@ -587,9 +596,9 @@ class HarvestMotionNode:
                                 
                 while not continue_flag:
 
-                    print('2. continue_flag  = ', continue_flag)
-                    print('2. self.detection_decision = ', self.detection_decision)
-                    print('1. self.ok_redect_pressed = ', self.ok_redect_pressed)
+                    #print('2. continue_flag  = ', continue_flag)
+                    #print('2. self.detection_decision = ', self.detection_decision)
+                    #print('1. self.ok_redect_pressed = ', self.ok_redect_pressed)
                   
                     self.send_cameraEN(True)
                     visionrate = 30
@@ -639,9 +648,9 @@ class HarvestMotionNode:
                 rospy.loginfo("Moving to Grasp Pose...")
                 self.send_motion_command("task", "poly", self.gGrasp, [0, 0, 0, 0, 0, 0], 3.0, 'gripper')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
-                if confirmation != "success":
-                    rospy.logerr("Failed to move to grasp pose. Aborting sequence.")
-                    return
+                # if confirmation != "success":
+                #     rospy.logerr("Failed to move to grasp pose. Aborting sequence.")
+                #     return
                 self.current_phase = "grasp"
 
                
@@ -675,7 +684,7 @@ class HarvestMotionNode:
                 #     return
 
                 # Θέση του Thumb για ανοιχτό Finger
-                thumb_open_position = [6, -1, -np.pi/4]
+                thumb_open_position = [7, -1, -np.pi/4]
                 rospy.loginfo(f"Moving Thumb to CLOSE Position: {thumb_open_position}")
                 self.send_thumb_position(*thumb_open_position)
                 #rospy.loginfo("Go Home process completed.")
@@ -695,7 +704,7 @@ class HarvestMotionNode:
                
                 rospy.loginfo("Executing DMP...")
                 self.send_motion_command("task", "dmp", SE3(np.eye(4)), [0, 0, 0, 0, 0, 0], 3.0, 'gripper')
-                confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
+                confirmation = self.wait_for_confirmation('/motion_status', timeout=10000.0)
                 if confirmation != "success":
                     rospy.logerr("Failed to move to DMP pose. Aborting sequence.")
                     return
@@ -832,6 +841,8 @@ class HarvestMotionNode:
         """ Υπολογίζει τη θέση grasp """
         f = scipy.io.loadmat('/home/carpos/catkin_ws/src/task_knowledge/graspPose.mat')
         ggrasp = f['ggrasp']
+        ggrasp[0:3,3] = np.zeros(3)
+        
         gTE = SE3(ggrasp)
         g0E = self.g0T * gTE
         return g0E
@@ -840,7 +851,8 @@ class HarvestMotionNode:
         """ Υπολογίζει τη θέση pregrasp """
         f = scipy.io.loadmat('/home/carpos/catkin_ws/src/task_knowledge/graspPose.mat')
         ggrasp = np.array(f['ggrasp'],dtype = float)
-        
+        ggrasp[0:3,3] = np.zeros(3)
+
         #ggrasp[0, 3] = ggrasp[0, 3] + 0.1
         ggrasp[0, 3] = ggrasp[0, 3] + 0.1
         ggrasp[2, 3] = ggrasp[2, 3] + 0.05

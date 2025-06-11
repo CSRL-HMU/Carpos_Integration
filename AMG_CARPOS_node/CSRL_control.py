@@ -9,11 +9,17 @@ kt = 4.0
 
 
 
+W = np.eye(8)
+W[6,6] = 10
+W[7,7] = 10
+
+
+
+
 def wpinv(J):
 
-    W = np.eye(8)
-    W[6,6] = 10
-    W[7,7] = 10
+    global W, q_equil
+
     invW = np.linalg.inv(W)
     return invW @ J.T @ np.linalg.inv(J @ invW @ J.T)
 
@@ -58,7 +64,7 @@ def kinReaching_SE3(p, A, pT, AT, J, kr):
     return qdot
 
 # kinametic controller for reaching in end-effector generalized SE3 space
-def kinTracking_SE3(p, A, pd, Ad, pd_dot, omegad, J, weightedEn = True):
+def kinTracking_SE3(p, A, pd, Ad, pd_dot, omegad, J, weightedEn = True, qdot_null = np.zeros(8)):
     ep = p - pd
     eo = logError(A, Ad)
     e = np.concatenate((ep,eo))
@@ -68,6 +74,8 @@ def kinTracking_SE3(p, A, pd, Ad, pd_dot, omegad, J, weightedEn = True):
     else:
         qdot = np.linalg.pinv(J) @ ( v - kt * e )
 
+
+    qdot = qdot 
         
     return qdot
 

@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <launch>
        
     <!-- Node για τον υπολογισμό της κίνησης και αποστολή εντολών -->
@@ -7,6 +8,9 @@
     <node pkg="CARPOS_amg" type="carpos_amg_node.py" name="carpos_amg" output="screen" launch-prefix="python3"/>
  <node pkg="carpos_active_perception" type="carpos_active_perception_node.py" name="carpos_active_perception" output="screen" launch-prefix="python3"/>
    
+   <!-- Node για την εκτέλεση των κινήσεων στον UR10 -->
+  <node pkg="carpos_kinesthetics" type="carpos_kinesthetics_node.py" name="carpos_kinesthetic" output="screen" launch-prefix="python3"/>
+ <!--<node pkg="carpos_kinesthetics" type="carpos_active_perception_node.py" name="carpos_active_perception" output="screen" launch-prefix="python3"/>-->
    
     <!-- Start Tomato Detector Node -->
     <node pkg="perception_node" type="perception_node.py" name="perception_node" output="screen">
@@ -17,9 +21,9 @@
    
    
     <!-- Εκκίνηση του κόμβου gripper_control -->
-    <node name="gripper_control" pkg="gripper_control" type="gripper_control.py" output="screen">
+   <!-- <node name="gripper_control" pkg="gripper_control" type="gripper_control.py" output="screen">
         <param name="serial_port" value="/dev/ttyUSB0"/>
         <param name="baud_rate" value="115200"/>
-    </node>
+    </node>-->
 </launch>
 

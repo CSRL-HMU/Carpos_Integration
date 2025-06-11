@@ -181,6 +181,8 @@ def start_observation_callback(data):
     pcenter[1] = data.data[1]
     pcenter[2] = data.data[2]
 
+    print('[Active Perception] pcenter=', pcenter)
+
 
     if iteration_counter == 0:
         go_optimal_pose(p_center=pcenter)

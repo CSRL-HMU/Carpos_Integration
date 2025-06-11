@@ -33,6 +33,13 @@ from dmpSE3 import *
 
 
 
+q_equil = np.array([0, -110, 130, 160, -90, 0])
+q_equil = q_equil * math.pi / 180
+
+
+null_gain = 2.5
+
+
 def test_callback(data):
 
     print('Test callback !!!')
@@ -206,7 +213,7 @@ rotation_matrix = SO3.AngVec(0, np.array([0,0,1]))
 p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.0675, 0.067) #D415
 
 rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
-p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.01, 0,  0.05)  # Position of the tool (in meters)
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.06, 0,  0.14)  # Position of the tool (in meters)
 # p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
 ur.tool = p_wrist_camera 
 
@@ -332,6 +339,8 @@ def amg_command_callback(data):
         p = p0
         Q = Q0
 
+
+        # q0 = np.array(rtde_r.getActualQ()) 
        
         if data.motion_type == 'reach':
 
@@ -365,6 +374,10 @@ def amg_command_callback(data):
 
             
             print('[AMG] Moving with poly ... ')
+
+            # rtde_c.startContactDetection(); 
+
+
             while t<T:
                 
                 t_start = rtde_c.initPeriod()
@@ -379,7 +392,20 @@ def amg_command_callback(data):
                 
                 # get full jacobian
                 J = get_robot_Jacobian()
-            
+                N = np.eye(8) - np.linalg.pinv(J)@J
+
+                q = np.array(rtde_r.getActualQ()) 
+                e_null = np.zeros(8)
+                q_equil[0] = q[0]
+                e_null[2:8] = q - q_equil
+                # e_null[1] = 1*math.sin(0.8*2*math.pi*t)
+                q_null = - null_gain * N @ e_null
+                # q_null = - N @ e_null
+
+
+                # mot_cur = rtde_r.getA
+
+               
                 #generate trajectory
                 pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t, T=T)
 
@@ -388,7 +414,17 @@ def amg_command_callback(data):
 
                 set_commanded_velocities(qdot)
 
+                # # COntact detection functionality
+                # contact_detected = rtde_c.toolContact()
+                # if contact_detected:
+                #     print('[Warning!] contact is detected ... switching to free drive mode ... ')
+                #     rtde_c.teachMode()
+
+                #     break
+
                 rtde_c.waitPeriod(t_start)
+
+            # rtde_c.stopContactDetection()
 
 
         elif data.motion_type == 'dmp':
@@ -663,7 +699,8 @@ def amg_command_callback(data):
         elif data.motion_type == 'home':
             print('[AMG] Moving to home configuration: ')
             
-            qT = np.array([-183, -90, 120, 140, -90, 0])
+            # qT = np.array([-183, -90, 120, 140, -90, 0])
+            qT = np.array([-270, -90, 120, 140, -90, 0])
             qT = qT * pi / 180
             print('qT = ', qT)
 
