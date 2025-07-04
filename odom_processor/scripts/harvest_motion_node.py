@@ -3,7 +3,7 @@
 import rospy
 import tf
 from geometry_msgs.msg import Pose
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 from custom_msgs.msg import HarvestCommand
 import numpy as np
 from spatialmath import *
@@ -56,7 +56,8 @@ class HarvestMotionNode:
         
         self.finger_pub = rospy.Publisher('/finger_control', Bool, queue_size=10)
 
-        self.thumb_pub = rospy.Publisher('/thumb_position', Float32MultiArray, queue_size=10)
+        #self.thumb_pub = rospy.Publisher('/thumb_position', Float32MultiArray, queue_size=10)
+        self.thumb_pub_2 = rospy.Publisher('/thumb_position', Int32, queue_size=1)
 
         self.finger_status_sub = rospy.Subscriber('/finger_status', String, self.finger_status_callback)
 
@@ -130,6 +131,19 @@ class HarvestMotionNode:
         self.thumb_pub.publish(msg)
         #self.awaiting_thumb_confirmation = True  # Μπαίνουμε σε αναμονή
         #self.wait_for_confirmation('/thumb_status')
+
+    def send_thumb_position_2(self, cmd):
+        """ 
+        Στέλνει εντολή στο /thumb_position ([x, y, angle]) και περιμένει επιβεβαίωση 
+        """
+        msg = Int32()
+        msg.data = cmd
+
+        rospy.loginfo(f"Sending Thumb Position: {cmd}")
+        self.thumb_pub_2.publish(msg)
+        #self.awaiting_thumb_confirmation = True  # Μπαίνουμε σε αναμονή
+        #self.wait_for_confirmation('/thumb_status')
+
 
     def finger_status_callback(self, msg):
         """ 
@@ -241,10 +255,11 @@ class HarvestMotionNode:
 
                 rospy.loginfo("OPEN Finger...")
                 self.send_finger_command(0)  # 1
-                thumb_open_position = [8, 4.5, 0]
+                #thumb_open_position = [8, 4.5, 0]
+                #self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 3 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
-           
                 
                 
                 rospy.loginfo("Go to HOME POSE...")
@@ -273,12 +288,14 @@ class HarvestMotionNode:
 
                 print("========================================================================== COMMAND 4 =========================================================================")
                 self.enable_robot_pub.publish(True)
+
+                time.sleep(4)
                 
                 rospy.loginfo("Executing Observation Pose...")
                 home_pose = SE3(np.eye(4))
                 home_config = np.array([-183, -90, 120, 140, -90, 0])
                 home_config = home_config * math.pi / 180
-                self.send_motion_command("joint", "home", home_pose, home_config, 3.0, 'camera')
+                self.send_motion_command("joint", "home", home_pose, home_config, 2.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
 
                 
@@ -349,7 +366,7 @@ class HarvestMotionNode:
 
                 
 
-                self.send_motion_command("task", "poly", self.gObservation, [0, 0, 0, 0, 0, 0], 3.0, 'camera')
+                self.send_motion_command("task", "poly", self.gObservation, [0, 0, 0, 0, 0, 0], 1.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10)
                 if confirmation != "success":
                     rospy.logerr("Failed to move to observation pose. Aborting sequence.")
@@ -391,9 +408,13 @@ class HarvestMotionNode:
                 ########ANOIGMA gripper######
                 rospy.loginfo("OPEN Finger...")
                 self.send_finger_command(0)  # 1
-                thumb_open_position = [8, 4.5, 0]
+                #thumb_open_position = [8, 4.5, 0]
+                #self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 3 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
+
+
            
                 
                 
@@ -517,9 +538,12 @@ class HarvestMotionNode:
                 #     return
 
                 # Θέση του Thumb για ανοιχτό Finger
-                thumb_open_position = [6, -1, -np.pi/4]
+                # thumb_open_position = [6, -1, -np.pi/4]
+                # self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 2 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to CLOSE Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
+
                 #rospy.loginfo("Go Home process completed.")
                 # Βήμα 4: Μετακίνηση στην θέση καλαθιού
 
@@ -550,9 +574,12 @@ class HarvestMotionNode:
                 ########ANOIGMA gripper######
                 rospy.loginfo("OPEN Finger...")
                 self.send_finger_command(0)  # 1
-                thumb_open_position = [8, 4.5, 0]
+                #thumb_open_position = [8, 4.5, 0]
+                #self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 3 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
+
            
                 
                 
@@ -684,9 +711,12 @@ class HarvestMotionNode:
                 #     return
 
                 # Θέση του Thumb για ανοιχτό Finger
-                thumb_open_position = [7, -1, -np.pi/4]
+                #thumb_open_position = [7, -1, -np.pi/4]
+                #self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 2 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to CLOSE Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
+
                 #rospy.loginfo("Go Home process completed.")
                 # Βήμα 4: Μετακίνηση στην θέση καλαθιού
                 
@@ -730,9 +760,12 @@ class HarvestMotionNode:
                  ########ANOIGMA gripper######
                 rospy.loginfo("OPEN Finger...")
                 self.send_finger_command(0)  # 1
-                thumb_open_position = [8, 4.5, 0]
+                #thumb_open_position = [8, 4.5, 0]
+                # self.send_thumb_position(*thumb_open_position)
+                thumb_open_position = 3 
+                self.send_thumb_position_2(thumb_open_position)
                 rospy.loginfo(f"Moving Thumb to Open Position: {thumb_open_position}")
-                self.send_thumb_position(*thumb_open_position)
+                
                 rospy.loginfo("Go Basket process completed.")
                 
 
