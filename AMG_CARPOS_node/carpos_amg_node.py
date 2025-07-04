@@ -31,7 +31,7 @@ sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from dmpSE3 import * 
 
 
-
+warning_flag = False
 
 q_equil = np.array([0, -110, 130, 160, -90, 0])
 q_equil = q_equil * math.pi / 180
@@ -88,7 +88,9 @@ def husky_pose_callback(data):
 def get_ee_pose():
     global ur, rtde_c, rtde_r, g_0husk
 
+    
     q_ur = np.array(rtde_r.getActualQ())
+         
 
     g_huske = ur.fkine(q_ur[0:6])
     g_0e = g_0husk * g_huske
@@ -192,6 +194,14 @@ canonicalType = 'linear' # other option: exponential
 pi = math.pi
 
 
+
+d_adm = np.array([0,0,0])
+ddot_adm = np.array([0,0,0])
+dddot_adm = np.array([0,0,0])
+M_adm = 2*np.eye(3)
+D_adm = 10*np.eye(3)
+K_adm = 40*np.eye(3)
+
 # initial configuration
 q0 = np.array(rtde_r.getActualQ())
 q = q0
@@ -288,7 +298,7 @@ def amg_enable_robot(data):
 # This is the callback function for the high level commands
 def amg_command_callback(data):
 
-    global ur
+    global ur, warning_flag, d_adm, ddot_adm, dddot_adm, M_adm, D_adm, K_adm
 
     T = data.duration
     t = 0
@@ -307,6 +317,9 @@ def amg_command_callback(data):
         print('Going with the default end-effector (camera)')
 
     print('Tool pose wrt wrist:', ur.tool)
+
+
+    foffset = np.array(rtde_r.getActualTCPForce())
 
    
 
@@ -377,6 +390,11 @@ def amg_command_callback(data):
 
             # rtde_c.startContactDetection(); 
 
+            if warning_flag:
+                rtde_c.endTeachMode()
+
+            warning_flag = False
+
 
             while t<T:
                 
@@ -385,13 +403,38 @@ def amg_command_callback(data):
                 #integrate time
                 t = t + dt
                 
+                f = np.array(rtde_r.getActualTCPForce()) - foffset
+
+                # The force/torque with respect to the wrist of the leader robot 
+                fp = f[:3]
+                
+                
+                # Dead-zone (thresholding) of the the measurement of the force
+                fnorm = np.linalg.norm(fp)
+                if fnorm > 0.001:
+                    nF = fp / fnorm
+                    if fnorm<10.0:
+                        fp = np.zeros(3)
+                    else:
+                        fp = fp - 10.0 * nF
+
+                fk = K_adm @ d_adm
+                norm_fk = np.linalg.norm(fk)
+                if norm_fk > 5:
+                    fk = (5/norm_fk)*fk
+
             
+
+                dddot_adm = np.linalg.inv(M_adm) @ (-D_adm @ ddot_adm - fk + fp) 
+                d_adm = d_adm + dt * ddot_adm
+                ddot_adm = ddot_adm + dt * dddot_adm
 
                 p, R, Q = get_ee_pose()
 
                 
                 # get full jacobian
                 J = get_robot_Jacobian()
+                Jp = J[0:3,2:8]
                 N = np.eye(8) - np.linalg.pinv(J)@J
 
                 q = np.array(rtde_r.getActualQ()) 
@@ -410,19 +453,31 @@ def amg_command_callback(data):
                 pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t, T=T)
 
                 # tracking control signal
-                qdot = kinTracking_SE3(p=p, A=R, pd=pd, Ad=Rd, pd_dot=pd_dot, omegad=omegad, J=J)
+                qdot = kinTracking_SE3(p=p, A=R, pd=pd+d_adm, Ad=Rd, pd_dot=pd_dot+ddot_adm, omegad=omegad, J=J)
+                # qdot = kinTracking_SE3(p=p, A=R, pd=pd, Ad=Rd, pd_dot=pd_dot, omegad=omegad, J=J)
 
                 set_commanded_velocities(qdot)
+                test = np.array([1,0,0])
 
                 # # COntact detection functionality
+                # contact_detected = rtde_c.toolContact(test)
+                # print("joint_toques=", np.linalg.norm(rtde_c.getJointTorques()))
+
                 # contact_detected = rtde_c.toolContact()
-                # if contact_detected:
+                # Lambda = rtde_c.getMassMatrix()
+                # q_ddot = rtde_r.getTargetJointAccelerations()
+                # fx = np.linalg.pinv(Jp.T)@(rtde_c.getJointTorques() - Lambda @ q_ddot)
+                # print("tool contact=", rtde_c.toolContact([1,1,1]))
+           
+                # if rtde_c.toolContact([1,1,1]):
                 #     print('[Warning!] contact is detected ... switching to free drive mode ... ')
+                #     warning_flag = True
+                #     rtde_c.speedStop() 
                 #     rtde_c.teachMode()
 
                 #     break
 
-                rtde_c.waitPeriod(t_start)
+                # rtde_c.waitPeriod(t_start)
 
             # rtde_c.stopContactDetection()
 
@@ -614,8 +669,8 @@ def amg_command_callback(data):
             pT = pdw.copy()
                 
             
-            
-            rtde_c.speedStop()                              
+            if not warning_flag:
+                rtde_c.speedStop()                              
       
 
         ## Checking for Errors
@@ -720,7 +775,8 @@ def amg_command_callback(data):
         
   
     # Stop robot 
-    rtde_c.speedStop()
+    if not warning_flag:
+        rtde_c.speedStop()
 
 
     
@@ -756,94 +812,95 @@ if __name__ == '__main__':
     
  
     while not rospy.is_shutdown():
+        if rtde_c.isConnected():
+            # Publish camera pose
+            ur_pforPub.tool = p_wrist_camera
+            # q = np.array(rtde_r.getActualQ())
+            # g = ur_pforPub.fkine(q)
+            # R = np.array(g.R)
+            # p = np.array(g.t)
+            
+            p, R, Q = get_ee_pose()
 
-        # Publish camera pose
-        ur_pforPub.tool = p_wrist_camera
-        # q = np.array(rtde_r.getActualQ())
-        # g = ur_pforPub.fkine(q)
-        # R = np.array(g.R)
-        # p = np.array(g.t)
-        p, R, Q = get_ee_pose()
+            msg = PoseStamped()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = "camera"  # Update with your camera frame
+            # Set position (origin)
+            msg.pose.position.x = p[0]
+            msg.pose.position.y = p[1]
+            msg.pose.position.z = p[2]
+            # Compute orientation (rotation matrix to quaternion)
+            
+            quaternion = rot2quat(R)
+            msg.pose.orientation = Quaternion(
+                x=quaternion[1],
+                y=quaternion[2],
+                z=quaternion[3],
+                w=quaternion[0]
+            )
+            camera_pose_pub.publish(msg)
 
-        msg = PoseStamped()
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "camera"  # Update with your camera frame
-        # Set position (origin)
-        msg.pose.position.x = p[0]
-        msg.pose.position.y = p[1]
-        msg.pose.position.z = p[2]
-        # Compute orientation (rotation matrix to quaternion)
-        
-        quaternion = rot2quat(R)
-        msg.pose.orientation = Quaternion(
-            x=quaternion[1],
-            y=quaternion[2],
-            z=quaternion[3],
-            w=quaternion[0]
-        )
-        camera_pose_pub.publish(msg)
+    
+            p, R, Q = get_cee_pose()
 
-
-        p, R, Q = get_cee_pose()
-
-        msg = PoseStamped()
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "camera"  # Update with your camera frame
-        # Set position (origin)
-        msg.pose.position.x = p[0]
-        msg.pose.position.y = p[1]
-        msg.pose.position.z = p[2]
-        # Compute orientation (rotation matrix to quaternion)
-        
-        quaternion = rot2quat(R)
-        msg.pose.orientation = Quaternion(
-            x=quaternion[1],
-            y=quaternion[2],
-            z=quaternion[3],
-            w=quaternion[0]
-        )
-
-
-        camera_pose_ur_pub.publish(msg)
+            msg = PoseStamped()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = "camera"  # Update with your camera frame
+            # Set position (origin)
+            msg.pose.position.x = p[0]
+            msg.pose.position.y = p[1]
+            msg.pose.position.z = p[2]
+            # Compute orientation (rotation matrix to quaternion)
+            
+            quaternion = rot2quat(R)
+            msg.pose.orientation = Quaternion(
+                x=quaternion[1],
+                y=quaternion[2],
+                z=quaternion[3],
+                w=quaternion[0]
+            )
 
 
-
+            camera_pose_ur_pub.publish(msg)
 
 
 
-        # Publish gripper pose
-        ur_pforPub.tool = p_wrist_gripper
-        # q = np.array(rtde_r.getActualQ())
-        # q = np.array(rtde_r.getActualQ())
-        # g = ur_pforPub.fkine(q)
-        # R = np.array(g.R)
-        # p = np.array(g.t)
-        p, R, Q = get_ee_pose()
 
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "gripper"  # Update with your camera frame
-        # Set position (origin)
-        msg.pose.position.x = p[0]
-        msg.pose.position.y = p[1]
-        msg.pose.position.z = p[2]
-        # Compute orientation (rotation matrix to quaternion)
-        
-        quaternion = rot2quat(R)
-        msg.pose.orientation = Quaternion(
-            x=quaternion[1],
-            y=quaternion[2],
-            z=quaternion[3],
-            w=quaternion[0]
-        )
-        gripper_pose_pub.publish(msg)
 
-        # p, R, Q = get_ee_pose()
 
-        # print('[main] p=', p)
-        # print('[main] R=', R)
-        # print('[main] Q=', Q)
-   
+            # Publish gripper pose
+            ur_pforPub.tool = p_wrist_gripper
+            # q = np.array(rtde_r.getActualQ())
+            # q = np.array(rtde_r.getActualQ())
+            # g = ur_pforPub.fkine(q)
+            # R = np.array(g.R)
+            # p = np.array(g.t)
+            p, R, Q = get_ee_pose()
 
-        # motion_finished_error()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = "gripper"  # Update with your camera frame
+            # Set position (origin)
+            msg.pose.position.x = p[0]
+            msg.pose.position.y = p[1]
+            msg.pose.position.z = p[2]
+            # Compute orientation (rotation matrix to quaternion)
+            
+            quaternion = rot2quat(R)
+            msg.pose.orientation = Quaternion(
+                x=quaternion[1],
+                y=quaternion[2],
+                z=quaternion[3],
+                w=quaternion[0]
+            )
+            gripper_pose_pub.publish(msg)
+
+            # p, R, Q = get_ee_pose()
+
+            # print('[main] p=', p)
+            # print('[main] R=', R)
+            # print('[main] Q=', Q)
+    
+
+            # motion_finished_error()
         
         rate.sleep()

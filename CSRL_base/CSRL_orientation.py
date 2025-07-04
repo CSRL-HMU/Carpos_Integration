@@ -343,3 +343,20 @@ def quatIntegrate(A, omega, dt):
     
 
     
+def getJq(A):
+    Q = enforceQuat(A)
+
+    eta = Q[0]
+    epsilon = Q[1:3+1]
+    
+
+    Jq = np.zeros((4, 3))
+
+    # print(epsilon)
+    Jq[1:3+1, :] = eta*np.identity(3)-skewSymmetric(epsilon)
+    epsilon.shape = (3,1)
+    Jq[0, :] = -np.transpose(epsilon)
+ 
+   
+
+    return Jq

@@ -20,6 +20,13 @@ from pynput import keyboard
 from cmaes import CMAwM
 import seaborn as sns
 from grasp_active_perception import *
+import os
+import time
+
+
+def beep_ubuntu():
+    # Use 'play' command from sox package (if available)
+    os.system(f'play -nq -t alsa synth 0.33 sine 432')
 
 import pandas as pd
 import os
@@ -160,6 +167,227 @@ def get_tomato_pose_from_vision(data):
     # print('tomato_quat=', tomato_quat)
     # print('tomato_R=', tomato_R)
 
+# Function required for the active perception
+def calculate_dR_d(q, choice):
+    if choice < 0 or choice > 3:
+        print("Error in choice!")
+        return
+    q = np.array(q)
+    q = q / np.linalg.norm(q)
+
+    dr_d_ = np.zeros((3,3))
+
+    if choice == 0:
+        dr_d_[0,:] = [4 * q[0],    -2 * q[3],  2 * q[2]]
+        dr_d_[1,:] = [2 * q[3],    4 * q[0],  -2 * q[1]]
+        dr_d_[2,:] = [-2 * q[2],   2 * q[1],   4 * q[0]]
+
+    elif choice == 1:
+        dr_d_[0, :] = [4 * q[1],    2 * q[2],    2 * q[3]]
+        dr_d_[1, :] = [2 * q[2],    0,          -2 * q[0]]
+        dr_d_[2, :] = [2 * q[3],    2 * q[0],    0       ]
+
+    elif choice == 2:
+        dr_d_[0, :] = [0,           2 * q[1],   2 * q[0]]
+        dr_d_[1, :] = [2 * q[1],    4 * q[2],   2 * q[3]]
+        dr_d_[2, :] = [-2 * q[0],   2 * q[3],   0       ]
+    else:
+        dr_d_[0, :] = [0,           -2 * q[0],  2 * q[1]]
+        dr_d_[1, :] = [2 * q[0],    0,          2 * q[2]]
+        dr_d_[2, :] = [2 * q[1],    2 * q[2],   4 * q[3]]
+
+    return dr_d_
+
+def go_LAIF_pose(pc):
+
+    global knowledge_path, hand_g
+
+    
+
+    print('[Active] Connecting to the robot ... ')
+
+    rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
+    rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
+
+
+    print('[Active] Connected. ')
+
+
+
+    UR_robot = rt.DHRobot([
+        rt.RevoluteDH(d = 0.1807, alpha = pi/2),
+        rt.RevoluteDH(a = -0.6127),
+        rt.RevoluteDH(a = -0.57155),
+        rt.RevoluteDH(d = 0.17415, alpha = pi/2),
+        rt.RevoluteDH(d = 0.11985, alpha = -pi/2),
+        rt.RevoluteDH(d = 0.11655)
+    ], name='UR10e')
+    tcp_offset_position = [-0.04, -0.0675, 0.067] #D415
+
+    # Create the SE(3) transformation
+    TCP_offset = SE3.Trans(*tcp_offset_position) 
+
+    # Set TCP on UR5e model
+    UR_robot.tool = TCP_offset
+
+    q0 = np.array(rtde_r.getActualQ())
+    # rtde_c.moveJ(q0_rad, 0.5, 0.5)
+
+
+    g0c= UR_robot.fkine(q0)
+    p0c = g0c.t
+    R0c = g0c.R
+
+    g0h = g0c * SE3(hand_g)
+
+    train_data = scipy.io.loadmat(str(knowledge_path) +'/training_demo.mat')
+
+
+    Rrobc = np.array(train_data['Rrobc'])
+   
+
+    fx = 350
+    fy = 625
+
+    #uncertainties
+    sigma_low = 0.1
+    sigma_high = 1.0
+    es_low = pi/20
+    es_high = pi
+    Ks = np.array([sigma_low,sigma_low,sigma_high,es_high,es_high,es_low])
+    S_c = np.diag(Ks * Ks)
+
+    # This is a loop to get the hand pose
+    for i in range(10):
+        time.sleep(0.1)
+   
+    R0h = g0h.R
+
+    Qun = np.zeros((6,6))
+    Qun[0:3, 0:3] = R0h @ Rrobc @ S_c[0:3, 0:3] @ Rrobc.T @ R0h.T
+    Qun[3:6, 3:6] = R0h @ Rrobc @ S_c[3:6, 3:6] @ Rrobc.T @ R0h.T
+
+    Q_inv = np.linalg.inv(Qun[0:3, 0:3])
+
+
+    # Set the covariance matrix of the camera
+    sigma_1 = 40.0
+    sigma_2 = 40.0
+    sigma_3 = 0.3
+
+
+
+    # print('R0h=', R0h )
+    # print('Rrobc=', Rrobc)
+    # print('R0h @ Rrobc=', R0h @ Rrobc)
+    # print(Qun[0:3, 0:3])
+
+    # sadasdad
+    dt = 0.002
+
+    
+    #  params --------------------------------------------------------------
+    # ka = 30000.0
+    ka = 30000.0
+    LAIF_transient = 4
+    
+
+    print("[LAIF] Finding the next pose of the camera ... ")
+    print("[LAIF] It will take ", LAIF_transient ," seconds ..." )
+
+    t = 0
+    while t<LAIF_transient:
+        # Start control loop - synchronization with the UR
+        t_start = rtde_c.initPeriod()
+        
+        # Integrate time
+        t = t + dt
+
+        # Get joint values
+        q = np.array(rtde_r.getActualQ())
+
+        # get robot pose
+        g= UR_robot.fkine(q)
+        p = g.t
+        R = g.R
+        Quat = rot2quat(R)
+
+        # initialize v_p
+        v_p = np.zeros(6)
+
+        
+        # get full jacobian
+        J = np.array(UR_robot.jacob0(q))
+
+
+        # compute Sigma now
+
+        pcf_hat = hand_g[0:3, 3]
+
+        sigma_x_sq = pow(sigma_1/fx,2)*pow(sigma_3,2)+(pow(pcf_hat[0]/pcf_hat[2],2))*pow(sigma_3,2)+pow(pcf_hat[2]*sigma_1/fx,2)
+        sigma_y_sq = pow(sigma_2/fy,2)*pow(sigma_3,2)+(pow(pcf_hat[1]/pcf_hat[2],2))*pow(sigma_3,2)+pow(pcf_hat[2]*sigma_2/fy,2)
+        sigma_d_sq = pow(sigma_3,2)
+        Sigma_1 = np.diag(np.array([sigma_x_sq, sigma_y_sq, sigma_d_sq]))
+     
+        Sigma_now = R  @ Sigma_1  @ R.T
+
+        Sigma_inv = np.linalg.inv(Sigma_now)
+
+        P = np.linalg.inv( Q_inv + Sigma_inv )
+
+        detP = np.linalg.det(P)
+        invP = np.linalg.inv(P)
+
+        Jq = getJq(Quat)
+
+        Spp = skewSymmetric(pc-p)
+
+        A = P @ P  @ Sigma_inv @ Sigma_inv
+
+        ddet_dq = np.zeros(4)
+        for j in range(4):
+
+            dR_dqi = calculate_dR_d(Quat, j)
+            dSigma_dqi = dR_dqi @ Sigma_1  @ np.transpose(R) + R  @ Sigma_1  @ np.transpose(dR_dqi)
+            dP_dqi = A @ dSigma_dqi
+            ddet_dq[j] = detP * np.trace( invP @ dP_dqi )
+        # END FOR
+
+        # print('Jq=', Jq)
+        # print('ddet_dq=', ddet_dq)
+
+
+        # time.sleep(10)
+
+        v_p = np.zeros(6)
+        v_p[3:6] = - ka * np.transpose(Jq) @ ddet_dq
+        v_p[0:3] = Spp @ v_p[3:6]
+        # if p[2]<0.20:
+        #     v_p[2]=0.0
+
+        print("v_p= ", v_p)
+        # Inverse kinematics mapping with singularity avoidance
+        qdot = np.linalg.pinv(J, 0.1) @ ( v_p )
+        
+
+        # set joint speed with acceleration limits
+        # qdot = np.zeros(6)
+        # =========================================
+        rtde_c.speedJ(qdot, 1.0, dt)
+
+        # This is for synchronizing with the UR robot
+        rtde_c.waitPeriod(t_start)
+
+    print("[LAIF] Finish")
+    #print(f"time: {ellapsed_time}")
+    rtde_c.speedStop()
+
+    print('[LAIF] Disconnecting from the robot ...')
+    # rtde_c.stopScript()
+    rtde_c.disconnect()
+    rtde_r.disconnect()
+
+    return
 
 
 
@@ -186,8 +414,16 @@ def start_observation_callback(data):
 
     if iteration_counter == 0:
         go_optimal_pose(p_center=pcenter)
+        # pass
+
+    if iteration_counter == 1:
+        go_LAIF_pose(pc=pcenter)
 
     iteration_counter = iteration_counter + 1
+
+    beep_ubuntu()
+    time.sleep(0.333)
+    beep_ubuntu()
 
     continue_flag = False
     while not continue_flag:
