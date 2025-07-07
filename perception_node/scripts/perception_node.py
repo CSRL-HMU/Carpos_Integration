@@ -11,6 +11,7 @@ import rospy
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool
 from geometry_msgs.msg import PoseStamped, Quaternion
 from std_msgs.msg import Header
+from sensor_msgs.msg import CompressedImage
 from tf.transformations import quaternion_from_matrix
 
 print("YOLO running on:", "GPU" if torch.cuda.is_available() else "CPU")
@@ -168,6 +169,7 @@ class GraspDetector:
         #self.image_pub = rospy.Publisher('/detections', PoseStamped, queue_size=1)
         self.tomato_pub = rospy.Publisher('/tomato_pose', PoseStamped, queue_size=1)
         self.enable_sub = rospy.Subscriber('/grasp_enable', Bool, self._enable_callback, queue_size=1)
+        self.image_pub = rospy.Publisher('/rs_image', CompressedImage, queue_size=1)
 
     def deproject_to_3d(self, x, y, depth_frame, intrinsics):
         frame_width = depth_frame.width
@@ -218,6 +220,7 @@ class GraspDetector:
         p2 = (pbi - pw) / np.linalg.norm(pbi - pw)
         p3 = (pbs - pw) / np.linalg.norm(pbs - pw)
 
+
         # z will be towards the mid vector from those vectors (giving more weight to the thumb)
         z = (0.5 * p1 + 0.25 * p2 + 0.25 * p3)
         z = z / np.linalg.norm(z)
@@ -235,9 +238,6 @@ class GraspDetector:
 
         # create the rotation matrix
         R = np.hstack((x, y, z))
-
-        
-
 
         # print the lines of the frame to the image
         w_pixel = np.array([int(pw[0] * width), int(pw[1] * height)])
@@ -396,7 +396,8 @@ class GraspDetector:
         # Update the last keypoint set
         self.last_keypoint_set = current_keypoints
         #self.keypoints_history.append(current_keypoints)
-        self.publish_frame_data(self.tomato_reference_frame, self.hand_pose, self.last_keypoint_set)
+        self.last_frame = color_frame_print
+        self.publish_frame_data(self.tomato_reference_frame, self.hand_pose, self.last_keypoint_set, self.last_frame)
         return color_frame_print
 
     def get_last_keypoint_set(self):
@@ -415,7 +416,7 @@ class GraspDetector:
         # self.enabled = not self.enabled
         rospy.loginfo(f"Grasp enabled? {self.enabled}")
 
-    def publish_frame_data(self, tomato_frame, hand_frame, keypoints):
+    def publish_frame_data(self, tomato_frame, hand_frame, keypoints, image):
         """Publish tomato reference frame as a PoseStamped message."""
         tomato_pose_msg = PoseStamped()
         tomato_pose_msg.header = Header()
@@ -474,6 +475,17 @@ class GraspDetector:
         keypoint_msg.data = keypoints.flatten().tolist()
         self.keypoints_pub.publish(keypoint_msg)
 
+        """Publish Image"""
+        success, encoded_image = cv2.imencode('.jpg', image)
+        if not success:
+            rospy.logwarn("Failed to encode frame")
+            return
+        msg = CompressedImage()
+        msg.header.stamp = rospy.Time.now()
+        msg.format = "jpeg"
+        msg.data = encoded_image.tobytes()
+        self.image_pub.publish(msg)
+
 
     def run(self):
             rate = rospy.Rate(500)  # Publish at 10 Hz
@@ -485,7 +497,6 @@ class GraspDetector:
                         end_time = time.time() - start_time
                         #print(f"time: {end_time}")
                         self.process_times.append(end_time)
-
                         self.last_frame = image
                         if image is None:
                             continue
@@ -501,7 +512,7 @@ class GraspDetector:
 
 
 if __name__ == "__main__":
-    detector = GraspDetector(show_frame=True)
+    detector = GraspDetector(show_frame=False)
     # rospy.spin()  # Keep ROS node alive
     detector.run()
     # Keep the main thread alive

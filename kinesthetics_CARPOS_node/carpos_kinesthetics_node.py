@@ -250,7 +250,15 @@ def kinesthetic_correction_callback(data):
     t_stiff = 0
 
     # Kinesthetic only
-    # rtde_c.teachMode()  
+    # rtde_c.teachMode() 
+    # 
+    # 
+
+    #wait for  the button
+    print('Please press the button to start ... ')
+    while rtde_r.getActualDigitalInputBits() <= 0:
+        pass
+        
 
 
     i = 0
@@ -258,14 +266,15 @@ def kinesthetic_correction_callback(data):
         i = i + 1
 
 
-        tool_di = rtde_r.getActualDigitalInputBits()
-        # tool_di = 2
-        if tool_di > 0: 
-            t_stiff = 1
-            tau = 1
-        else:
-            t_stiff = t_stiff - dt
-            tau = 1
+        t_stiff = 1
+        tau = 1
+        # # tool_di = 2
+        # if tool_di > 0: 
+        #     t_stiff = 1
+        #     tau = 1
+        # else:
+        #     t_stiff = t_stiff - dt
+        #     tau = 1
 
         dmpTask.set_tau(tau)
 
