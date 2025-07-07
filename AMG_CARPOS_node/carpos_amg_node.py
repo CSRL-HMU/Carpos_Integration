@@ -388,6 +388,8 @@ def amg_command_callback(data):
             
             print('[AMG] Moving with poly ... ')
 
+            phriFlag = False
+
             # rtde_c.startContactDetection(); 
 
             if warning_flag:
@@ -395,19 +397,36 @@ def amg_command_callback(data):
 
             warning_flag = False
 
+            Qd_array = np.array([0, 0, 0, 0])
+            Qd_array.shape = (4,1)
+            Q_array = np.array([0, 0, 0, 0])
+            Q_array.shape = (4,1)
+            pd_array = np.array([0, 0, 0])
+            pd_array.shape = (3,1)
+            p_array = np.array([0, 0, 0])
+            p_array.shape = (3,1)
+
+            f_array = np.array([0, 0, 0, 0, 0, 0])
+            f_array.shape = (6,1)
+
+            vad_array = np.array([0, 0, 0, 0, 0, 0])
+            vad_array.shape = (6,1)
+
+            t_v = t
 
             while t<T:
                 
                 t_start = rtde_c.initPeriod()
 
-                #integrate time
-                t = t + dt
+                
                 
                 f = np.array(rtde_r.getActualTCPForce()) - foffset
 
                 # The force/torque with respect to the wrist of the leader robot 
                 fp = f[:3]
-                
+
+                pd = np.zeros(0)
+                Rd = np.zeros(0)
                 
                 # Dead-zone (thresholding) of the the measurement of the force
                 fnorm = np.linalg.norm(fp)
@@ -417,6 +436,8 @@ def amg_command_callback(data):
                         fp = np.zeros(3)
                     else:
                         fp = fp - 10.0 * nF
+
+                f[:3] = fp
 
                 fk = K_adm @ d_adm
                 norm_fk = np.linalg.norm(fk)
@@ -449,12 +470,39 @@ def amg_command_callback(data):
                 # mot_cur = rtde_r.getA
 
                
+                t = t + dt
                 #generate trajectory
-                pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t, T=T)
+                if not phriFlag:
+                    #integrate time
+                    t_v = t_v + dt
+
+                # print(phriFlag)
+
+                # print(t)
+
+                pd, Rd, pd_dot, omegad = get5thorder_SE3(p0=p0, A0=R0, pT=pT, AT=QT, t=t_v, T=T)
+
+
+                if phriFlag: 
+                    pd_dot = np.zeros(3)
+                    omegad = np.zeros(3)
+
+
+                if np.linalg.norm(p-pd) > 0.1:
+
+                    print('[AMG] RAISING PHRI FLAG !!!!!!!!!!!')
+                    phriFlag = True
+
+                
+            
+
+            
 
                 # tracking control signal
                 qdot = kinTracking_SE3(p=p, A=R, pd=pd+d_adm, Ad=Rd, pd_dot=pd_dot+ddot_adm, omegad=omegad, J=J)
                 # qdot = kinTracking_SE3(p=p, A=R, pd=pd, Ad=Rd, pd_dot=pd_dot, omegad=omegad, J=J)
+
+                
 
                 set_commanded_velocities(qdot)
                 test = np.array([1,0,0])
@@ -477,9 +525,40 @@ def amg_command_callback(data):
 
                 #     break
 
-                # rtde_c.waitPeriod(t_start)
+                ########################### LOGGING!!!!!!!!!!!!!
+
+                ptemp = p.copy()
+                pdtemp = pd.copy()
+                Qtemp = Q.copy()
+                Qdtemp = Rd.copy()
+
+                ftemp = f.copy()
+                vtemp = np.concatenate((pd_dot+ddot_adm,omegad))
+                
+                ptemp.shape = (3,1)
+                pdtemp.shape = (3,1)
+                Qtemp.shape = (4,1)
+                Qdtemp.shape = (4,1)
+                ftemp.shape = (6,1)
+                vtemp.shape = (6,1)
+
+                Q_array = np.hstack((Q_array,Qtemp))
+                p_array = np.hstack((p_array,ptemp))
+                Qd_array = np.hstack((Qd_array,Qdtemp))
+                pd_array = np.hstack((pd_array,pdtemp))
+                f_array = np.hstack((f_array,ftemp))
+                vad_array = np.hstack((vad_array,vtemp))
+
+
+                
+
+
+                rtde_c.waitPeriod(t_start)
 
             # rtde_c.stopContactDetection()
+            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, "f_array": f_array, "vad_array": vad_array,}
+        
+            scipy.io.savemat('/home/carpos/catkin_ws/src/logging/phri_logging.mat', mdic)
 
 
         elif data.motion_type == 'dmp':

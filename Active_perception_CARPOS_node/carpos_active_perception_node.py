@@ -288,7 +288,7 @@ def go_LAIF_pose(pc):
     
     #  params --------------------------------------------------------------
     # ka = 30000.0
-    ka = 30000.0
+    ka = 10000.0
     LAIF_transient = 4
     
 
@@ -360,12 +360,15 @@ def go_LAIF_pose(pc):
         # time.sleep(10)
 
         v_p = np.zeros(6)
-        v_p[3:6] = - ka * np.transpose(Jq) @ ddet_dq
-        v_p[0:3] = Spp @ v_p[3:6]
+        if np.linalg.norm(p-p0c)<0.20:
+            v_p[3:6] = - ka * np.transpose(Jq) @ ddet_dq
+            v_p[0:3] = Spp @ v_p[3:6]
+        else:
+            print("[LAIF controller] The limit is reached !")
         # if p[2]<0.20:
         #     v_p[2]=0.0
 
-        print("v_p= ", v_p)
+        # print("v_p= ", v_p)
         # Inverse kinematics mapping with singularity avoidance
         qdot = np.linalg.pinv(J, 0.1) @ ( v_p )
         
@@ -419,7 +422,7 @@ def start_observation_callback(data):
     if iteration_counter == 1:
         go_LAIF_pose(pc=pcenter)
 
-    iteration_counter = iteration_counter + 1
+    
 
     beep_ubuntu()
     time.sleep(0.333)
@@ -467,6 +470,30 @@ def start_observation_callback(data):
 
     # initialize time
     t0 = time.time()
+
+    
+
+
+    if iteration_counter == 1:
+
+        print(str(knowledge_path) + 'training_demo.mat')
+
+        data = scipy.io.loadmat(str(knowledge_path) +'training_demo.mat')
+        p_train_prev = np.array(data['p_array'])
+        Q_train_prev = np.array(data['Q_array'])
+
+        dt_prev = data['dt'][0][0]
+        Rrobc_prev = np.array(data['Rrobc'])
+
+        mdic_prev = {"p_array": p_train_prev, "Q_array": Q_train_prev, "dt": dt_prev, "Rrobc": Rrobc_prev}
+        
+        scipy.io.savemat(str(knowledge_path) + 'training_demo_prev.mat', mdic_prev)
+
+
+
+    ##################################  CHANGE COUNTER !!!!!!!!!!!!!!!!!!!!!
+    iteration_counter = iteration_counter + 1
+
 
     
     # Show the message picture
@@ -539,7 +566,7 @@ def start_observation_callback(data):
     # save dataset array
     Q_array[:,1:] = makeContinuous(Q_array[:,1:])
     mdic = {"p_array": p_array[:,1:], "Q_array": Q_array[:,1:], "dt": dt, "Rrobc": R0c}
-    print(str(knowledge_path) + 'training_demo.mat')
+    
     scipy.io.savemat(str(knowledge_path) + 'training_demo.mat', mdic)
 
     # Train the DMP model
