@@ -24,9 +24,14 @@ import os
 import time
 
 
-def beep_ubuntu():
+def beep_ubuntu_start():
     # Use 'play' command from sox package (if available)
-    os.system(f'play -nq -t alsa synth 0.33 sine 432')
+    os.system(f'play -nq -t alsa synth 1 sine 432')
+\
+
+def beep_ubuntu_end():
+    # Use 'play' command from sox package (if available)
+    os.system(f'play -nq -t alsa synth 1 sine 100')
 
 import pandas as pd
 import os
@@ -390,7 +395,8 @@ def go_LAIF_pose(pc):
     rtde_c.disconnect()
     rtde_r.disconnect()
 
-    return
+    # we return sigma and Q with respect to the initial hand frame
+    return  R0h.T @ Sigma_now @ R0h, Rrobc @ S_c[0:3, 0:3] @ Rrobc.T
 
 
 
@@ -414,19 +420,24 @@ def start_observation_callback(data):
 
     print('[Active Perception] pcenter=', pcenter)
 
+    Sigma = np.zeros((3,3))
+    Qkf = np.zeros((3,3))
+    Sigma_inv = np.zeros((3,3))
+    Q_inv = np.zeros((3,3))
 
     if iteration_counter == 0:
         go_optimal_pose(p_center=pcenter)
         # pass
 
     if iteration_counter == 1:
-        go_LAIF_pose(pc=pcenter)
+        Sigma, Qkf = go_LAIF_pose(pc=pcenter)
+        Sigma_inv = np.linalg.inv(Sigma)
+        Q_inv = np.linalg.inv(Qkf)
 
     
 
-    beep_ubuntu()
-    time.sleep(0.333)
-    beep_ubuntu()
+    
+
 
     continue_flag = False
     while not continue_flag:
@@ -472,7 +483,7 @@ def start_observation_callback(data):
     t0 = time.time()
 
     
-
+    N_prev = 10000000000000
 
     if iteration_counter == 1:
 
@@ -485,14 +496,15 @@ def start_observation_callback(data):
         dt_prev = data['dt'][0][0]
         Rrobc_prev = np.array(data['Rrobc'])
 
+        N_prev = p_train_prev[0,:].size
+
         mdic_prev = {"p_array": p_train_prev, "Q_array": Q_train_prev, "dt": dt_prev, "Rrobc": Rrobc_prev}
         
         scipy.io.savemat(str(knowledge_path) + 'training_demo_prev.mat', mdic_prev)
 
 
 
-    ##################################  CHANGE COUNTER !!!!!!!!!!!!!!!!!!!!!
-    iteration_counter = iteration_counter + 1
+   
 
 
     
@@ -501,8 +513,14 @@ def start_observation_callback(data):
     cv2.imshow('Message', image)
 
     vision_rate = rospy.Rate(fps) 
+
+    n = 0
+
+    beep_ubuntu_start()
         
     while True:
+
+        
 
         # Integrate time
         t = time.time() - t0
@@ -531,11 +549,19 @@ def start_observation_callback(data):
         if (cv2.waitKey(5) & 0xFF == 27):
             break
 
+        
+        if iteration_counter == 1 and (p_array[0,:].size == p_train_prev[0,:].size):
+            break
+
+        n = n + 1
+
         vision_rate.sleep()
 
 
     cv2.destroyAllWindows()
     # cap.release()
+
+    beep_ubuntu_end()
 
 
     msg.data = False 
@@ -562,6 +588,18 @@ def start_observation_callback(data):
         p_array[:,i] = R0c @ (p_array[:,i] - p0)
         Rch = quat2rot(Q_array[:,i])
         Q_array[:,i] = rot2quat(R0c @ Rch)
+
+        if iteration_counter == 1:
+            p_array[:,i] = np.linalg.inv( Q_inv + Sigma_inv ) @ ( (Q_inv @ p_train_prev[:,i]) + (Sigma_inv @ p_array[:,i]) )
+            Q_array[:,i] = (Q_train_prev[:,i] + Q_array[:,i])/2
+            Q_array[:,i] = Q_array[:,i] / math.sqrt( Q_array[0,i]*Q_array[0,i]  + Q_array[1,i]*Q_array[1,i] + Q_array[2,i]*Q_array[2,i] + Q_array[3,i]*Q_array[3,i] ) 
+
+
+
+    if iteration_counter == 1:
+        Q0c = (rot2quat(R0c) + rot2quat(Rrobc_prev))/2 
+        Q0c = Q0c / math.sqrt( Q0c[0]*Q0c[0]  + Q0c[1]*Q0c[1] + Q0c[2]*Q0c[2] + Q0c[3]*Q0c[3] ) 
+        R0c = quat2rot(Q0c)
 
     # save dataset array
     Q_array[:,1:] = makeContinuous(Q_array[:,1:])
@@ -601,6 +639,9 @@ def start_observation_callback(data):
     status_str = "success" 
     rospy.loginfo('[Active perception node]  Status: ' + status_str)
     status_pub.publish(status_str)
+
+    ##################################  CHANGE COUNTER !!!!!!!!!!!!!!!!!!!!!
+    iteration_counter = iteration_counter + 1
 
     actObs_enabled = False
 

@@ -90,9 +90,12 @@ def get_ee_pose():
 
     
     q_ur = np.array(rtde_r.getActualQ())
-         
+    # print('[get_ee_pose()]  q_ur=',q_ur)
 
-    g_huske = ur.fkine(q_ur[0:6])
+    if q_ur.size<6:
+        q_ur = np.zeros(6)
+
+    g_huske = ur.fkine(q_ur)
     g_0e = g_0husk * g_huske
 
 
@@ -108,7 +111,12 @@ def get_cee_pose():
 
     q_ur = np.array(rtde_r.getActualQ())
 
-    g_huske = ur.fkine(q_ur[0:6])
+    if q_ur.size<6:
+        q_ur = np.zeros(6)
+
+    # print('[get_cee_pose()] q_ur=',q_ur)
+    g_huske = ur.fkine(q_ur)
+    
 
 
     R_huske = np.array(g_huske.R)
@@ -185,6 +193,8 @@ joint_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
 rtde_c = rtde_control.RTDEControlInterface("192.168.1.64")
 rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.64")
 
+
+foffset = np.array(rtde_r.getActualTCPForce())
 # DMP params
 kernelType = 'Gaussian' # other option: sinc
 canonicalType = 'linear' # other option: exponential
@@ -286,6 +296,9 @@ def amg_enable_robot(data):
             rtde_c.reconnect()
             rtde_r.reconnect()
 
+            q_nothing = np.array(rtde_r.getActualQ())
+            print(q_nothing)
+
             time.sleep(3)
     else:
         print('Disconnecting from the robot ...')
@@ -319,7 +332,7 @@ def amg_command_callback(data):
     print('Tool pose wrt wrist:', ur.tool)
 
 
-    foffset = np.array(rtde_r.getActualTCPForce())
+    
 
    
 
@@ -422,6 +435,8 @@ def amg_command_callback(data):
                 
                 f = np.array(rtde_r.getActualTCPForce()) - foffset
 
+                print('f=',f)
+
                 # The force/torque with respect to the wrist of the leader robot 
                 fp = f[:3]
 
@@ -432,12 +447,14 @@ def amg_command_callback(data):
                 fnorm = np.linalg.norm(fp)
                 if fnorm > 0.001:
                     nF = fp / fnorm
-                    if fnorm<10.0:
+                    if fnorm<30.0:
                         fp = np.zeros(3)
                     else:
-                        fp = fp - 10.0 * nF
+                        fp = fp - 30.0 * nF
 
+                # fp = np.zeros(3)
                 f[:3] = fp
+                
 
                 fk = K_adm @ d_adm
                 norm_fk = np.linalg.norm(fk)
@@ -556,9 +573,9 @@ def amg_command_callback(data):
                 rtde_c.waitPeriod(t_start)
 
             # rtde_c.stopContactDetection()
-            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, "f_array": f_array, "vad_array": vad_array,}
+            # mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, "f_array": f_array, "vad_array": vad_array,}
         
-            scipy.io.savemat('/home/carpos/catkin_ws/src/logging/phri_logging.mat', mdic)
+            # scipy.io.savemat('/home/carpos/catkin_ws/src/logging/phri_logging.mat', mdic)
 
 
         elif data.motion_type == 'dmp':
@@ -891,7 +908,7 @@ if __name__ == '__main__':
     
  
     while not rospy.is_shutdown():
-        if rtde_c.isConnected():
+        if rtde_c.isConnected() and rtde_r.isConnected():
             # Publish camera pose
             ur_pforPub.tool = p_wrist_camera
             # q = np.array(rtde_r.getActualQ())
