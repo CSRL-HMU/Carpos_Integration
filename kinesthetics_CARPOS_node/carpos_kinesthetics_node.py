@@ -439,7 +439,7 @@ def kinesthetic_correction_callback(data):
 
     # Write the data to a file 
     data_file = {'plog': plog, 'Qlog': Qlog, 'pdlog': pdlog, 'Qd_log': Qd_log  ,'tlog': tlog,'q_log': q_log ,'qdotc_log': qdotc_log , 'f_log': f_log , 'K_log': K_log }
-    scio.savemat('Logging_kinesthetic.mat', data_file)
+    scio.savemat('/home/carpos/catkin_ws/src/logging/Logging_kinesthetic.mat', data_file)
 
 
     
