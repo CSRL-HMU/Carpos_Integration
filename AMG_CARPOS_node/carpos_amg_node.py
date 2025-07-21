@@ -851,7 +851,7 @@ def amg_command_callback(data):
             print('[AMG] Moving to home configuration: ')
             
             # qT = np.array([-183, -90, 120, 140, -90, 0])
-            qT = np.array([-270, -90, 120, 140, -90, 0])
+            qT = np.array([-270, -150, 120, 213, -95, 0])
             qT = qT * pi / 180
             print('qT = ', qT)
 

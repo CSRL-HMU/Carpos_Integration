@@ -719,6 +719,10 @@ def go_optimal_pose(p_center, radius=0.35):
         best_results =[]
         step_count = 0
 
+        Q_array = np.array([0, 0, 0, 0])
+        p_array = np.array([0, 0, 0])
+
+
         for i in range (3): #  5 epochs ( iterations)
             solutions = [] 
             solutions_for_cma_manipulation  = [] 
@@ -754,6 +758,7 @@ def go_optimal_pose(p_center, radius=0.35):
                         g_current = UR_robot.fkine(q)
                         p_temp = g_current.t
                         R_current = g_current.R
+                        Q_temp = rot2quat(R_current)
 
                         # 2) Desired Pose with Look-at-Center Orientation
                         T_des, v_des, w_des = desired_pose_polar_with_look_at(t_local,phi0, phi1, theta0, theta1, p_center, radius)
@@ -766,6 +771,9 @@ def go_optimal_pose(p_center, radius=0.35):
                         
                         e[:3] = p_des - p_temp
                         e[3:] = logError(R_des, R_current, enMin=True)
+
+                        Q_array = np.vstack((Q_array,Q_temp))
+                        p_array = np.vstack((p_array,p_temp))
 
                         
                         # 4) Command (6D feedforward - error correction)
@@ -862,15 +870,14 @@ def go_optimal_pose(p_center, radius=0.35):
             'partial_rewards': partial_reward_logs,
             'cur_phi': phi_logs,
             'cur_theta': theta_logs,
-            'cmaes_sigma_log': cmaes_sigma_log,
-            'covariance_log': covariance_log,
             'best_results':best_params,
-            'best_reward':best_reward
+            'best_reward':best_reward,
+            'Qrobot':Q_array,
+            'probot':p_array
         }
 
          # Save each experiment's data to a separate .mat file
-        # mat_file_name = f"experimnt_{experiment_index + 1}.mat"
-        # savemat(os.path.join(output_mat_dir, mat_file_name), experiment_data)
+        savemat('/home/carpos/catkin_ws/src/logging/GRASPAD_logging.mat', experiment_data)
 
         t_local = 0.0
         rtde_c.speedStop()

@@ -280,6 +280,9 @@ def go_LAIF_pose(pc):
     sigma_2 = 40.0
     sigma_3 = 0.3
 
+    Q_array = np.array([0, 0, 0, 0])
+    p_array = np.array([0, 0, 0])
+
 
 
     # print('R0h=', R0h )
@@ -376,6 +379,10 @@ def go_LAIF_pose(pc):
         # print("v_p= ", v_p)
         # Inverse kinematics mapping with singularity avoidance
         qdot = np.linalg.pinv(J, 0.1) @ ( v_p )
+
+
+        Q_array = np.vstack((Q_array,Quat))
+        p_array = np.vstack((p_array,p))
         
 
         # set joint speed with acceleration limits
@@ -394,6 +401,16 @@ def go_LAIF_pose(pc):
     # rtde_c.stopScript()
     rtde_c.disconnect()
     rtde_r.disconnect()
+
+    experiment_data = {
+        'Qrobot':Q_array,
+        'probot':p_array,
+        'Qun' : Qun
+    }
+
+    # Save each experiment's data to a separate .mat file
+    savemat('/home/carpos/catkin_ws/src/logging/LAIF_logging.mat', experiment_data)
+    print('[LAIF] Logging data saved.')
 
     # we return sigma and Q with respect to the initial hand frame
     return  R0h.T @ Sigma_now @ R0h, Rrobc @ S_c[0:3, 0:3] @ Rrobc.T
