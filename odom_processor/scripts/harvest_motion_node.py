@@ -366,7 +366,7 @@ class HarvestMotionNode:
 
                 
 
-                self.send_motion_command("task", "poly", self.gObservation, [0, 0, 0, 0, 0, 0], 1.0, 'camera')
+                self.send_motion_command("task", "poly", self.gObservation, [0, 0, 0, 0, 0, 0], 2.0, 'camera')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10)
                 if confirmation != "success":
                     rospy.logerr("Failed to move to observation pose. Aborting sequence.")
@@ -744,13 +744,27 @@ class HarvestMotionNode:
                 #################################
                 # Βήμα 6: Επιστροφή στην αρχική θέση (home)
                 rospy.loginfo("Returning to Home Position...")
+
+                home_pose = SE3(np.eye(4))
+                home_config = qT = np.array([-270, -150, 150, 213, -95, 0])
+                home_config = home_config * math.pi / 180
+                self.send_motion_command("joint", "poly", home_pose, home_config, 3.0, 'camera')
+                confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
+                if confirmation != "success":
+                    rospy.logerr("Failed to go to home. Aborting sequence.")
+                    return
+                self.current_phase = "home_again"
+
+
+                rospy.loginfo("Leave to basket...")
+
                 basket_pose = SE3(np.eye(4))
                 basket_config = np.array([-192, -56, 111, 88, 82, 0])
                 basket_config = basket_config * math.pi / 180
                 self.send_motion_command("joint", "poly", basket_pose, basket_config, 5.0, 'gripper')
                 confirmation = self.wait_for_confirmation('/motion_status', timeout=10.0)
                 if confirmation != "success":
-                    rospy.logerr("Failed to return to home position. Aborting sequence.")
+                    rospy.logerr("Failed to go to the basket. Aborting sequence.")
                     return
                 self.current_phase = "basket"
 
@@ -884,11 +898,19 @@ class HarvestMotionNode:
         """ Υπολογίζει τη θέση pregrasp """
         f = scipy.io.loadmat('/home/carpos/catkin_ws/src/task_knowledge/graspPose.mat')
         ggrasp = np.array(f['ggrasp'],dtype = float)
+        
         ggrasp[0:3,3] = np.zeros(3)
 
-        #ggrasp[0, 3] = ggrasp[0, 3] + 0.1
-        ggrasp[0, 3] = ggrasp[0, 3] + 0.1
-        ggrasp[2, 3] = ggrasp[2, 3] + 0.05
+        # ---------------------------------NEW
+        ggrasp[0:3,3] = -0.05*ggrasp[0:3,0]
+        ggrasp[0:3,3] = ggrasp[0:3,3] - 0.1*ggrasp[0:3,2]
+        # ---------------------------------NEW
+
+        ###### ggrasp[0, 3] = ggrasp[0, 3] + 0.1
+        # ---------------------------------OLD
+        # ggrasp[0, 3] = ggrasp[0, 3] + 0.1
+        # ggrasp[2, 3] = ggrasp[2, 3] + 0.05
+        # ---------------------------------OLD
         # print('ggrasp=', ggrasp)
         # print('ggrasp shape=', ggrasp.shape)
         

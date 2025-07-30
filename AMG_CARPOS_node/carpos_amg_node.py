@@ -233,7 +233,7 @@ rotation_matrix = SO3.AngVec(0, np.array([0,0,1]))
 p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.0675, 0.067) #D415
 
 rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
-p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.06, 0,  0.14)  # Position of the tool (in meters)
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.07, 0,  0.14)  # Position of the tool (in meters)
 # p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
 ur.tool = p_wrist_camera 
 
@@ -851,7 +851,8 @@ def amg_command_callback(data):
             print('[AMG] Moving to home configuration: ')
             
             # qT = np.array([-183, -90, 120, 140, -90, 0])
-            qT = np.array([-270, -150, 120, 213, -95, 0])
+            # qT = np.array([-270, -150, 120, 213, -95, 0])
+            qT = np.array([-270, -133, 96, 248, -92, 0])
             qT = qT * pi / 180
             print('qT = ', qT)
 
