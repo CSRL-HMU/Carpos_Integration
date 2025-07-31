@@ -296,8 +296,8 @@ def go_LAIF_pose(pc):
     
     #  params --------------------------------------------------------------
     # ka = 30000.0
-    ka = 10000.0
-    LAIF_transient = 4
+    ka = 5000.0
+    LAIF_transient = 8
     
 
     print("[LAIF] Finding the next pose of the camera ... ")
@@ -322,6 +322,7 @@ def go_LAIF_pose(pc):
 
         # initialize v_p
         v_p = np.zeros(6)
+        
 
         
         # get full jacobian
@@ -375,6 +376,10 @@ def go_LAIF_pose(pc):
             print("[LAIF controller] The limit is reached !")
         # if p[2]<0.20:
         #     v_p[2]=0.0
+
+
+        if v_p[2] < 0:
+            v_p = np.zeros(6)
 
         # print("v_p= ", v_p)
         # Inverse kinematics mapping with singularity avoidance
