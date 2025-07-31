@@ -87,6 +87,8 @@ class HarvestMotionNode:
         self.ok_redect_pressed = False
         self.detection_decision = None  # None: no input yet, 0: re-detect, 1: ok
 
+        self.observation_counter = 0
+
     def send_cameraEN(self,state): 
         msg = Bool()
         msg.data = bool(state)  # Μετατροπή σε True/False
@@ -288,6 +290,10 @@ class HarvestMotionNode:
 
                 print("========================================================================== COMMAND 4 =========================================================================")
                 self.enable_robot_pub.publish(True)
+
+                self.observation_counter =  self.observation_counter + 1
+
+
 
                 time.sleep(4)
                 
@@ -941,6 +947,10 @@ class HarvestMotionNode:
         g0E.A[0:3, 2] = z_dir
 
         g0E.A[0:3, 3] = g0T_mat[0:3, 3] - 0.4 * z_dir
+
+        if self.observation_counter == 2:
+            g0E.A[0:3, 3] = g0E.A[0:3, 3] - 0.1 * y_dir
+
 
         return SE3(g0E.A)
 

@@ -427,7 +427,7 @@ def amg_command_callback(data):
 
             t_v = t
 
-            while t<T:
+            while t<T*1.3:
                 
                 t_start = rtde_c.initPeriod()
 
