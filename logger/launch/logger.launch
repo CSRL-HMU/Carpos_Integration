@@ -1,0 +1,16 @@
+<launch>
+    <!-- Launch the SMR Logger Node -->
+    <node pkg="logger" type="logger.py" name="logger" output="screen">
+        
+        <!-- Output directory -->
+        <param name="output_dir" value="$(env HOME)/catkin_ws/src/logger/logs"/>
+
+        <!-- Topics -->
+        <param name="topic_start" value="/command_topic"/>
+        <param name="topic_confirm" value="/ok_redetect"/>
+        <param name="topic_completed" value="/stop_logger"/>
+        <param name="topic_sensors" value="/fsr_data"/>
+        
+    </node>
+</launch>
+

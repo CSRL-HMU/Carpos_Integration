@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import pyrealsense2 as rs
 import cv2
 import numpy as np
@@ -343,6 +345,7 @@ class GraspDetector:
 
             for i, box in enumerate(detections.boxes.xyxy):
                 x1, y1, x2, y2 = map(int, box.cpu().numpy())
+                cv2.rectangle(color_frame_print, (x1, y1), (x2, y2), (255, 0, 255), 2)
                 cy = (y1 + y2) // 2
                 if cy > best_cy:
                     best_cy, best_i = cy, i

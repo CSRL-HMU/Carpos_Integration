@@ -2,8 +2,9 @@
 import os
 from datetime import datetime
 import rospy
-from std_msgs.msg import Bool, Int32MultiArray
+from std_msgs.msg import Bool, Float32MultiArray, String
 import numpy as np
+import time
 
 try:
     from scipy.io import savemat
@@ -15,11 +16,11 @@ except Exception:
 class SmrLoggerNode:
     def __init__(self):
         # Params
-        self.dir_out = rospy.get_param("~output_dir", os.path.expanduser("~/smr_logs"))
-        self.topic_start = rospy.get_param("~topic_start", "/start_topic")
-        self.topic_confirm = rospy.get_param("~topic_confirm", "/confirm_grasp")
-        self.topic_completed = rospy.get_param("~topic_completed", "/completed")
-        self.topic_sensors = rospy.get_param("~topic_sensors", "/smr_sensors")
+        self.dir_out = rospy.get_param("~output_dir", os.path.expanduser("~/catkin_ws/src/logger/logs"))
+        self.topic_start = rospy.get_param("~topic_start", "/command_topic")
+        self.topic_confirm = rospy.get_param("~topic_confirm", "/ok_redetect")
+        self.topic_completed = rospy.get_param("~topic_completed", "/stop_logger")
+        self.topic_sensors = rospy.get_param("~topic_sensors", "/fsr_data")
 
         os.makedirs(self.dir_out, exist_ok=True)
 
@@ -31,18 +32,23 @@ class SmrLoggerNode:
         self.t_start = None
         self.t_confirm = None
         self.t_done = None
+        self.expecting = "start"
 
         # Subscribers
-        rospy.Subscriber(self.topic_start, Bool, self.on_start, queue_size=1)
-        rospy.Subscriber(self.topic_confirm, Bool, self.on_confirm, queue_size=1)
+        rospy.Subscriber(self.topic_start, String, self.on_start, queue_size=1)
+        rospy.Subscriber(self.topic_confirm, String, self.on_confirm, queue_size=1)
         rospy.Subscriber(self.topic_completed, Bool, self.on_completed, queue_size=1)
-        rospy.Subscriber(self.topic_sensors, Int32MultiArray, self.on_sensors, queue_size=100)
+        rospy.Subscriber(self.topic_sensors, Float32MultiArray, self.on_sensors, queue_size=100)
 
         rospy.loginfo("SMR Logger ready. Waiting for %s", self.topic_start)
 
     # --- Callbacks ---
-    def on_start(self, msg: Bool):
+    def on_start(self, msg: String):
+        rospy.loginfo("entered on_start callback ")
         if not msg.data:
+            return
+        if self.expecting != "start":
+            rospy.loginfo("exiting on_start callback ")
             return
         if self.logging_active:
             rospy.logwarn("Received start while already logging; ignoring.")
@@ -50,34 +56,47 @@ class SmrLoggerNode:
         self.run_counter += 1
         self.samples = []
         self.sample_times = []
-        self.t_start = rospy.Time.now().to_sec()
+        #self.t_start = rospy.Time.now().to_sec()
+        self.t_start = time.time()
         self.t_confirm = None
         self.t_done = None
         self.logging_active = True
+        
+        self.expecting = "confirm"
         rospy.loginfo("Run %d: START at %.3f", self.run_counter, self.t_start)
+        print("started logging")
 
-    def on_confirm(self, msg: Bool):
+    def on_confirm(self, msg: String):
+        rospy.loginfo("entered on_confirm callback ")
         if not msg.data or not self.logging_active:
+            rospy.loginfo("return 1 ")
             return
-        if self.t_confirm is None:
-            self.t_confirm = rospy.Time.now().to_sec()
-            rospy.loginfo("Run %d: CONFIRM at %.3f", self.run_counter, self.t_confirm)
+        if self.expecting != "confirm":
+            rospy.loginfo("return 2")
+            return
+        #if self.t_confirm is None and (time.time() - self.t_start > 4):
+            #self.t_confirm = rospy.Time.now().to_sec()
+        self.t_confirm = time.time()
+        rospy.loginfo("Run %d: CONFIRM at %.3f", self.run_counter, self.t_confirm)
 
     def on_completed(self, msg: Bool):
         if not msg.data or not self.logging_active:
             return
-        self.t_done = rospy.Time.now().to_sec()
+        #self.t_done = rospy.Time.now().to_sec()
+        self.t_done = time.time()
         rospy.loginfo("Run %d: COMPLETED at %.3f", self.run_counter, self.t_done)
         self.logging_active = False
+        self.expecting = "start"
         self.save_run()
 
-    def on_sensors(self, msg: Int32MultiArray):
+    def on_sensors(self, msg: Float32MultiArray):
         if not self.logging_active:
             return
         if len(msg.data) < 2:
             rospy.logwarn_throttle(5.0, "Expected 2 ints, got len=%d", len(msg.data))
             return
-        t_now = rospy.Time.now().to_sec()
+        # t_now = rospy.Time.now().to_sec()
+        t_now = time.time()
         self.samples.append([int(msg.data[0]), int(msg.data[1])])
         self.sample_times.append(t_now)
 
@@ -116,7 +135,7 @@ class SmrLoggerNode:
 
 
 def main():
-    rospy.init_node("smr_logger")
+    rospy.init_node("logger")
     SmrLoggerNode()
     rospy.spin()
 

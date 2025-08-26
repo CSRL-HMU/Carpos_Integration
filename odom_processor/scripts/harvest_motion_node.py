@@ -45,6 +45,7 @@ class HarvestMotionNode:
         self.enable_pub = rospy.Publisher('/grasp_enable', Bool, queue_size=1)           
         self.enable_robot_pub = rospy.Publisher('/amg_enable_robot', Bool, queue_size=1)           
         self.visual_obs_pub = rospy.Publisher('/start_active_perception', Float32MultiArray, queue_size=10, latch=True)
+        self.stop_logger = rospy.Publisher('/stop_logger', Bool, queue_size=1) 
 
         self.visual_obs_status_sub = rospy.Subscriber('/start_active_perception_status', String, self.visual_obs_status_callback)
     
@@ -789,8 +790,11 @@ class HarvestMotionNode:
                 rospy.loginfo("Go Basket process completed.")
                 
 
-
+                # Stop logger script
                 rospy.loginfo("Harvest Sequence Completed.")
+                msg_log = Bool()
+                msg_log.data = True  # Μετατροπή σε True/False
+                self.stop_logger.publish(msg_log)
         else:
             rospy.logwarn(f"Unknown command received: {command_str}")
 
