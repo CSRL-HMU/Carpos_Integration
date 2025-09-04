@@ -178,7 +178,18 @@ class GraspDetector:
         frame_height = depth_frame.height
         if x < 0 or x >= frame_width or y < 0 or y >= frame_height:
             return None
-        depth = depth_frame.get_distance(x, y)
+        
+        region_size = 20
+        depths = []
+        for dx in range(-region_size // 2, region_size // 2 + 1):
+            for dy in range(-region_size // 2, region_size // 2 + 1):
+                depth = depth_frame.get_distance(x + dx, y + dy)
+                if depth > 0:
+                    depths.append(depth)
+
+        if depths is None:
+            depth = min(depths)  #depth_frame.get_distance(x, y)
+
         if depth > 0:
             return rs.rs2_deproject_pixel_to_point(intrinsics, [x, y], depth)
         return None
@@ -368,8 +379,9 @@ class GraspDetector:
                     object_radius = object_size / 2
                     cv2.putText(color_frame_print, f"R:{object_radius:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                 (0, 255, 255), 2)
-                #else:
-                #    continue
+                else:
+                    object_radius = 0.04 
+                    #continue
 
                 for idx, kp in enumerate(keypoints):
                     kp_x, kp_y, kp_conf = int(kp[0]), int(kp[1]), kp[2]
@@ -385,30 +397,34 @@ class GraspDetector:
                                         color, 2)
 
                 # calculate tomato reference frame
-                if len(points_3d) == 3:
-                    surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
-                    adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
-                    self.tomato_reference_frame = self.calculate_reference_frame(adjusted_point_0, points_3d[1],
-                                                                                 points_3d[2])
-                    self.draw_reference_frame(
-                        color_frame_print,
-                        self.tomato_reference_frame[0:3, 3],  # origin
-                        np.zeros(3), np.zeros(3),
-                        # self.tomato_reference_frame[0:3, 0],  # x_axis
-                        # self.tomato_reference_frame[0:3, 1],  # y_axis
-                        self.tomato_reference_frame[0:3, 2],  # z_axis
-                        self.intrinsics
-                    )
+                # if len(points_3d) == 3:
+                #     surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
+                #     adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
+                #     self.tomato_reference_frame = self.calculate_reference_frame(adjusted_point_0, points_3d[1],
+                #                                                                  points_3d[2])
+                #     self.draw_reference_frame(
+                #         color_frame_print,
+                #         self.tomato_reference_frame[0:3, 3],  # origin
+                #         np.zeros(3), np.zeros(3),
+                #         # self.tomato_reference_frame[0:3, 0],  # x_axis
+                #         # self.tomato_reference_frame[0:3, 1],  # y_axis
+                #         self.tomato_reference_frame[0:3, 2],  # z_axis
+                #         self.intrinsics
+                #     )
 
                 # calculate tomato reference frame
-                if len(points_3d) == 2:
+                if len(points_3d) == 2 or len(points_3d) == 3:
                     surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
                     adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
-                    self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, points_3d[1])
+                    temp_point = points_3d[1]
+                    # temp_point[2] = adjusted_point_0[2]
+                    # print('adjusted_point_0=',adjusted_point_0)
+                    # print('temp_point=',temp_point)
+                    self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point)
                     self.draw_reference_frame(
                         color_frame_print,
                         self.tomato_reference_frame[0:3, 3],  # origin
-                        np.zeros(3), np.zeros(3),
+                        np.zeros(3), np.zeros(3), 
                         # self.tomato_reference_frame[0:3, 0],  # x_axis
                         # self.tomato_reference_frame[0:3, 1],  # y_axis
                         self.tomato_reference_frame[0:3, 2],  # z_axis

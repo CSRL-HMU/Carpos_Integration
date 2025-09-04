@@ -555,7 +555,7 @@ def get_features_from_vision(data):
 
 
 
-def go_optimal_pose(p_center, radius=0.35):
+def go_optimal_pose(p_center, radius=0.4):
 
 
 
@@ -723,7 +723,7 @@ def go_optimal_pose(p_center, radius=0.35):
         p_array = np.array([0, 0, 0])
 
 
-        for i in range (3): #  5 epochs ( iterations)
+        for i in range (6): #  5 epochs ( iterations)
             solutions = [] 
             solutions_for_cma_manipulation  = [] 
         # 7)  

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import pyrealsense2 as rs
 import cv2
 import numpy as np
@@ -176,6 +178,7 @@ class GraspDetector:
         frame_height = depth_frame.height
         if x < 0 or x >= frame_width or y < 0 or y >= frame_height:
             return None
+        
         depth = depth_frame.get_distance(x, y)
         if depth > 0:
             return rs.rs2_deproject_pixel_to_point(intrinsics, [x, y], depth)
@@ -335,8 +338,25 @@ class GraspDetector:
 
         # YOLO Predictions
         detections = self.tomato_detector.process_frame(color_frame)
+
         if detections.keypoints is not None:
-            for det, box in zip(detections.keypoints.data, detections.boxes.xyxy):
+            # filter detections for the lowest hanging tomato
+            best_i = -1  # invalid index at start
+            best_cy = -1  # smaller than any possible center_y
+
+            for i, box in enumerate(detections.boxes.xyxy):
+                x1, y1, x2, y2 = map(int, box.cpu().numpy())
+                cv2.rectangle(color_frame_print, (x1, y1), (x2, y2), (255, 0, 255), 2)
+                cy = (y1 + y2) // 2
+                if cy > best_cy:
+                    best_cy, best_i = cy, i
+
+            if best_i >= 0 and detections.keypoints[best_i] is not None:
+                det = detections.keypoints.data[best_i]
+                box = detections.boxes.xyxy[best_i]
+
+            # if detections.keypoints is not None:
+                #for det, box in zip(detections.keypoints.data, detections.boxes.xyxy):
                 keypoints = det.cpu().numpy()
                 points_3d = []
                 x1, y1, x2, y2 = map(int, box.cpu().numpy())
@@ -347,9 +367,11 @@ class GraspDetector:
                 object_size = self.calculate_object_size(x1, x2, y1, y2, depth_frame, self.intrinsics)
                 if object_size is not None:
                     object_radius = object_size / 2
-                    cv2.putText(color_frame_print, f"R:{object_radius:.2f}", (x1, y1 -10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    cv2.putText(color_frame_print, f"R:{object_radius:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (0, 255, 255), 2)
                 else:
-                    continue
+                    object_radius = 0.04 
+                    #continue
 
                 for idx, kp in enumerate(keypoints):
                     kp_x, kp_y, kp_conf = int(kp[0]), int(kp[1]), kp[2]
@@ -361,31 +383,33 @@ class GraspDetector:
                             current_keypoints[idx, :3] = point_3d
                             current_keypoints[idx, 3] = kp_conf
                             cv2.circle(color_frame_print, (kp_x, kp_y), 5, color, -1)
-                            cv2.putText(color_frame_print, f"{idx}", (kp_x, kp_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                            cv2.putText(color_frame_print, f"{idx}", (kp_x, kp_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                        color, 2)
 
                 # calculate tomato reference frame
                 # if len(points_3d) == 3:
                 #     surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
                 #     adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
-                #     self.tomato_reference_frame = self.calculate_reference_frame(adjusted_point_0, points_3d[1], points_3d[2])
+                #     self.tomato_reference_frame = self.calculate_reference_frame(adjusted_point_0, points_3d[1],
+                #                                                                  points_3d[2])
                 #     self.draw_reference_frame(
                 #         color_frame_print,
                 #         self.tomato_reference_frame[0:3, 3],  # origin
-                #         np.zeros(3), np.zeros(3), 
+                #         np.zeros(3), np.zeros(3),
                 #         # self.tomato_reference_frame[0:3, 0],  # x_axis
                 #         # self.tomato_reference_frame[0:3, 1],  # y_axis
                 #         self.tomato_reference_frame[0:3, 2],  # z_axis
                 #         self.intrinsics
                 #     )
 
-                 # calculate tomato reference frame
+                # calculate tomato reference frame
                 if len(points_3d) == 2 or len(points_3d) == 3:
                     surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
                     adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
                     temp_point = points_3d[1]
-                    temp_point[2] = adjusted_point_0[2]
-                    print('adjusted_point_0=',adjusted_point_0)
-                    print('temp_point=',temp_point)
+                    # temp_point[2] = adjusted_point_0[2]
+                    # print('adjusted_point_0=',adjusted_point_0)
+                    # print('temp_point=',temp_point)
                     self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point)
                     self.draw_reference_frame(
                         color_frame_print,
@@ -396,8 +420,6 @@ class GraspDetector:
                         self.tomato_reference_frame[0:3, 2],  # z_axis
                         self.intrinsics
                     )
-
-                print('TEEEEEST!!!!!')
 
         # Update the last keypoint set
         self.last_keypoint_set = current_keypoints

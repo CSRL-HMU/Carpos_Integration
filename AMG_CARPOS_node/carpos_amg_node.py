@@ -852,7 +852,7 @@ def amg_command_callback(data):
             
             # qT = np.array([-183, -90, 120, 140, -90, 0])
             # qT = np.array([-270, -150, 120, 213, -95, 0])
-            qT = np.array([-270, -133, 96, 248, -92, 0])
+            qT = np.array([-270, -133, 96, 230, -92, 0])
             qT = qT * pi / 180
             print('qT = ', qT)
 
