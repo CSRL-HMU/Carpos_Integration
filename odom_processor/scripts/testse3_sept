@@ -1,0 +1,17 @@
+from spatialmath import *
+import scipy.io
+import numpy as np
+
+
+f = scipy.io.loadmat('/home/carpos/catkin_ws/src/task_knowledge/graspPose.mat')
+ggrasp = f['ggrasp']
+ggrasp[0:3,3] = np.zeros(3)
+
+print(ggrasp)
+# ggrasp = np.asfarray(ggrasp)
+
+gTE = SE3(ggrasp)
+print(gTE)
+# ggrasp = np.eye(4)
+# print(ggrasp)
+# gTE = SE3(ggrasp)

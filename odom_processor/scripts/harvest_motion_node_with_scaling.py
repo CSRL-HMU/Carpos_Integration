@@ -3,7 +3,7 @@
 import rospy
 import tf
 from geometry_msgs.msg import Pose
-from std_msgs.msg import String, Int32
+from std_msgs.msg import String, Int32, Float64
 from custom_msgs.msg import HarvestCommand
 import numpy as np
 from spatialmath import *
@@ -65,6 +65,8 @@ class HarvestMotionNode:
         self.thumb_status_sub = rospy.Subscriber('/thumb_status', String, self.thumb_status_callback)
 
         self.ok_redetect_sub = rospy.Subscriber('/ok_redetect', String, self.ok_redetect_callback)
+
+        self.tomato_radius_sub = rospy.Subscriber('/tomato_radius', Float64, self.tomato_radius_callback)
         #command_int = None
 
         # Αρχικές καταστάσεις αναμονής
@@ -89,6 +91,18 @@ class HarvestMotionNode:
         self.detection_decision = None  # None: no input yet, 0: re-detect, 1: ok
 
         self.observation_counter = 0
+
+        #### ADDITION FOR SCALING 
+        self.tomato_r = 0.04
+
+
+    
+    #### ADDITION FOR SCALING 
+    def tomato_radius_callback(self, msg):
+        self.tomato_r = msg.data
+
+        # print("Received self.tomato_r=", self.tomato_r)
+
 
     def send_cameraEN(self,state): 
         msg = Bool()
@@ -222,6 +236,10 @@ class HarvestMotionNode:
         motion_msg.target_config = target_config
         motion_msg.duration = duration
         motion_msg.end_effector = tool
+
+        #### ADDITION FOR SCALING
+        print("self.tomato_r=", self.tomato_r)
+        motion_msg.tomato_r = self.tomato_r
 
         rospy.loginfo(f"Sending motion command: {motion_msg}")
         self.motion_pub.publish(motion_msg)
@@ -471,8 +489,8 @@ class HarvestMotionNode:
                     self.send_cameraEN(False)
 
 
-                    print("self.gPregrasp = ", self.gPregrasp)
-                    print("self.gGrasp = ", self.gGrasp)
+                    # print("self.gPregrasp = ", self.gPregrasp)
+                    # print("self.gGrasp = ", self.gGrasp)
                  
 
                     # rospy.loginfo("Executing Harvest Sequence...")
@@ -642,8 +660,8 @@ class HarvestMotionNode:
                     self.send_cameraEN(False)
 
 
-                    print("self.gPregrasp = ", self.gPregrasp)
-                    print("self.gGrasp = ", self.gGrasp)
+                    # print("self.gPregrasp = ", self.gPregrasp)
+                    # print("self.gGrasp = ", self.gGrasp)
                  
 
                     # rospy.loginfo("Executing Harvest Sequence...")
@@ -876,13 +894,13 @@ class HarvestMotionNode:
         gtemp = np.vstack((gtemp, np.array([0, 0, 0, 1])))
         #print(gtemp)
         try:
-            print('============================____________________=====')
+            # print('============================____________________=====')
             self.g0T =  self.g_0camera * SE3(gtemp)
-            print("self.g0T", self.g0T)
+            # print("self.g0T", self.g0T)
             self.gURT =  self.g_URcamera * SE3(gtemp)
-            print(" self.gURT ",  self.gURT )
+            # print(" self.gURT ",  self.gURT )
             self.gPregrasp = self.get_pregrasp_pose()
-            print("self.gPregrasp ",  self.gPregrasp )
+            # print("self.gPregrasp ",  self.gPregrasp )
             self.gGrasp = self.get_grasp_pose()
             self.gObservation = self.get_observation_pose()
         except Exception as ex:
@@ -920,7 +938,7 @@ class HarvestMotionNode:
         ggrasp[0:3,3] = ggrasp[0:3,3] - 0.1*ggrasp[0:3,2]
 
 
-        print('ggrasp', ggrasp)
+        # print('ggrasp', ggrasp)
         # ---------------------------------NEW
 
         ###### ggrasp[0, 3] = ggrasp[0, 3] + 0.1
@@ -930,13 +948,13 @@ class HarvestMotionNode:
         # ---------------------------------OLD
         # print('ggrasp=', ggrasp)
         # print('ggrasp shape=', ggrasp.shape)
-        print('g0T', self.g0T)
+        # print('g0T', self.g0T)
         
         gTE = SE3(ggrasp)
-        print('gTE', gTE)
+        # print('gTE', gTE)
         g0E = self.g0T * gTE
 
-        print('g0E', g0E)
+        # print('g0E', g0E)
 
         return g0E
 

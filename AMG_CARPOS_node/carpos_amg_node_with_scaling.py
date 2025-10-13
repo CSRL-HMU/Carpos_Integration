@@ -161,7 +161,7 @@ def get_robot_Jacobian():
 def set_commanded_velocities(q_dot_c):
     global ur, rtde_c, rtde_r, g_0husk
 
-    rtde_c.speedJ(q_dot_c[0:6], 1.0, dt)
+    rtde_c.speedJ(q_dot_c[0:6], 15.0, dt)
     
 
     v_husk = Twist()
@@ -231,9 +231,13 @@ ur_pforPub = ur.copy()
 # # Define the tool
 rotation_matrix = SO3.AngVec(0, np.array([0,0,1]))
 p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.0675, 0.067) #D415
+# for gripper of pricly pears
+# p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.07, 0.075) #D415
 
 rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
-p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.07, 0,  0.14+0.04)  # Position of the tool (in meters)
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.07, 0,  0.14+0.05)  # Position of the tool (in meters)
+# for prickly peear gripper 
+# p_wrist_gripper = SE3(rotation_matrix) * SE3(0.00, 0,  0.22)
 # p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
 ur.tool = p_wrist_camera 
 
@@ -332,7 +336,7 @@ def amg_command_callback(data):
     print('Tool pose wrt wrist:', ur.tool)
 
 
-    
+    tomato_r = data.tomato_r
 
    
 
@@ -435,7 +439,7 @@ def amg_command_callback(data):
                 
                 f = np.array(rtde_r.getActualTCPForce()) - foffset
 
-                print('f=',f)
+                # print('f=',f)
 
                 # The force/torque with respect to the wrist of the leader robot 
                 fp = f[:3]
@@ -461,6 +465,9 @@ def amg_command_callback(data):
                 if norm_fk > 5:
                     fk = (5/norm_fk)*fk
 
+                ###########
+                fp  = 0*fp
+                #########
             
 
                 dddot_adm = np.linalg.inv(M_adm) @ (-D_adm @ ddot_adm - fk + fp) 
@@ -573,9 +580,9 @@ def amg_command_callback(data):
                 rtde_c.waitPeriod(t_start)
 
             # rtde_c.stopContactDetection()
-            # mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, "f_array": f_array, "vad_array": vad_array,}
+            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, "f_array": f_array, "vad_array": vad_array,}
         
-            # scipy.io.savemat('/home/carpos/catkin_ws/src/logging/phri_logging.mat', mdic)
+            scipy.io.savemat('/home/carpos/catkin_ws/src/logging/phri_logging.mat', mdic)
 
 
         elif data.motion_type == 'dmp':
@@ -585,6 +592,8 @@ def amg_command_callback(data):
             data = scipy.io.loadmat(str(knowledge_path) +'/dmp_model.mat')
 
    
+
+            
 
             # These are the weights of the DMP
             W = np.array(data['W']) 
@@ -596,16 +605,22 @@ def amg_command_callback(data):
             # Import training data 
             train_data = scipy.io.loadmat(str(knowledge_path) +'/training_demo.mat')
 
-
+            tomato_r0 = train_data['tomato_r0']
             # Rrobc = np.array(train_data['Rrobc'])
 
             p_train = np.array(train_data['p_array'])
             Q_train = np.array(train_data['Q_array'])
 
+            
+
+            ############# THIS IS ADDED FOR THE SCALING
+            space_scaling = tomato_r/tomato_r0[0,0]
+            print("The motion will be scaled by: ",  space_scaling)
+            print("[Details] Tomato radius in training: ",  tomato_r)
+            print("[Details] Current tomato radius: ",  tomato_r0[0,0])
 
             # Set the initial and target values 
             # the DMP is xonstructed with respect to the initial pose of the end-effector
-            space_scaling = 1.0
             p0 = p_train[:,0] 
             pT = space_scaling * p_train[:,-1] 
 
@@ -660,6 +675,17 @@ def amg_command_callback(data):
 
             z = 0.0   #phase variable
             dz = 0.0
+
+            Qd_array = np.array([0, 0, 0, 0])
+            Qd_array.shape = (4,1)
+            Q_array = np.array([0, 0, 0, 0])
+            Q_array.shape = (4,1)
+            pd_array = np.array([0, 0, 0])
+            pd_array.shape = (3,1)
+            p_array = np.array([0, 0, 0])
+            p_array.shape = (3,1)
+
+
 
             t = 0
 
@@ -761,12 +787,37 @@ def amg_command_callback(data):
                 # synchronize
                 rtde_c.waitPeriod(t_start)
 
+
+                ptemp = p.copy()
+                pdtemp = pdw.copy()
+                Qtemp = Q.copy()
+                Qdtemp = Qdw.copy()
+
+                
+                ptemp.shape = (3,1)
+                pdtemp.shape = (3,1)
+                Qtemp.shape = (4,1)
+                Qdtemp.shape = (4,1)
+
+
+                Q_array = np.hstack((Q_array,Qtemp))
+                p_array = np.hstack((p_array,ptemp))
+                Qd_array = np.hstack((Qd_array,Qdtemp))
+                pd_array = np.hstack((pd_array,pdtemp))
+
+
             QT = Qdw.copy()
             pT = pdw.copy()
                 
             
             if not warning_flag:
-                rtde_c.speedStop()                              
+                rtde_c.speedStop()      
+
+            # rtde_c.stopContactDetection()
+            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, 'tomato_r0':tomato_r0, 'tomato_r':tomato_r}
+        
+            scipy.io.savemat('/home/carpos/catkin_ws/src/logging/DMP_logging.mat', mdic)
+                        
       
 
         ## Checking for Errors
