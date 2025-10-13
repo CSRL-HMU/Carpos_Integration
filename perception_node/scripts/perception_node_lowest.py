@@ -10,7 +10,7 @@ import time
 import mediapipe as mp
 import torch
 import rospy
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool
+from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool, Float64
 from geometry_msgs.msg import PoseStamped, Quaternion
 from std_msgs.msg import Header
 from sensor_msgs.msg import CompressedImage
@@ -126,6 +126,7 @@ class HandDetector:
 class TomatoDetector:
     def __init__(self):
         self.model = YOLO('/home/carpos/catkin_ws/src/perception_node/models/keypoints_new.pt')
+        #self.model = YOLO('/home/carpos/catkin_ws/src/perception_node/models/prickleys.pt')
         self.lock = threading.Lock()
         self.running = True
         # self.thread = threading.Thread(target=self.run, daemon=True)
@@ -172,6 +173,8 @@ class GraspDetector:
         self.tomato_pub = rospy.Publisher('/tomato_pose', PoseStamped, queue_size=1)
         self.enable_sub = rospy.Subscriber('/grasp_enable', Bool, self._enable_callback, queue_size=1)
         self.image_pub = rospy.Publisher('/rs_image', CompressedImage, queue_size=1)
+        self.radius_pub = rospy.Publisher('/tomato_radius', Float64, queue_size=1)
+        self.object_radius = None
 
     def deproject_to_3d(self, x, y, depth_frame, intrinsics):
         frame_width = depth_frame.width
@@ -179,13 +182,17 @@ class GraspDetector:
         if x < 0 or x >= frame_width or y < 0 or y >= frame_height:
             return None
         
+        # depth filter / get the closet distance in a region around point
         region_size = 20
         depths = []
         for dx in range(-region_size // 2, region_size // 2 + 1):
             for dy in range(-region_size // 2, region_size // 2 + 1):
-                depth = depth_frame.get_distance(x + dx, y + dy)
-                if depth > 0:
-                    depths.append(depth)
+                nx = x + dx
+                ny = y + dy
+                if 0 <= nx < frame_width and 0 <= ny < frame_height:
+                    depth = depth_frame.get_distance(nx, ny)
+                    if depth > 0:
+                        depths.append(depth)
 
         if depths is None:
             depth = min(depths)  #depth_frame.get_distance(x, y)
@@ -280,10 +287,15 @@ class GraspDetector:
         T[0:3, 3] = p1  # origin
         return T
     
-    def calculate_reference_frame_2points(self, p1, p2):
+    def calculate_reference_frame_2points(self, p1, p2, reverse=False):
         p1, p2 = np.array(p1), np.array(p2)
         z_axis = p1 - p2
         z_axis /= np.linalg.norm(z_axis)
+
+        #reverse axis if keypoint is below center
+        if reverse:
+            z_axis = -z_axis
+
         zz_t = np.outer(z_axis, z_axis)
         I = np.eye(3)
         nul = I - zz_t
@@ -350,15 +362,15 @@ class GraspDetector:
         detections = self.tomato_detector.process_frame(color_frame)
 
         if detections.keypoints is not None:
-            # filter detections for the lowest hanging tomato
-            best_i = -1  # invalid index at start
-            best_cy = -1  # smaller than any possible center_y
+            # filter detections for the lowest hanging fruit
+            best_i = -1 #-1  # invalid index at start
+            best_cy = 1600 #-1  # smaller than any possible center_y
 
             for i, box in enumerate(detections.boxes.xyxy):
                 x1, y1, x2, y2 = map(int, box.cpu().numpy())
                 cv2.rectangle(color_frame_print, (x1, y1), (x2, y2), (255, 0, 255), 2)
                 cy = (y1 + y2) // 2
-                if cy > best_cy:
+                if cy < best_cy:
                     best_cy, best_i = cy, i
 
             if best_i >= 0 and detections.keypoints[best_i] is not None:
@@ -377,6 +389,7 @@ class GraspDetector:
                 object_size = self.calculate_object_size(x1, x2, y1, y2, depth_frame, self.intrinsics)
                 if object_size is not None:
                     object_radius = object_size / 2
+                    self.object_radius = object_radius
                     cv2.putText(color_frame_print, f"R:{object_radius:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                 (0, 255, 255), 2)
                 else:
@@ -412,15 +425,28 @@ class GraspDetector:
                 #         self.intrinsics
                 #     )
 
-                # calculate tomato reference frame
+                # calculate fruit reference frame
                 if len(points_3d) == 2 or len(points_3d) == 3:
+                    # for tomatos
                     surface_normal = np.array(points_3d[0]) / np.linalg.norm(points_3d[0])
                     adjusted_point_0 = np.array(points_3d[0]) + surface_normal * object_radius
                     temp_point = points_3d[1]
+                    self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point)
+
+                    # for prickleys:
+                    # surface_normal = np.array(points_3d[1]) / np.linalg.norm(points_3d[1])
+                    # adjusted_point_0 = np.array(points_3d[1]) + surface_normal * object_radius
+                    # if len(points_3d) > 2 and points_3d[2] is not None:
+                    #     temp_point = points_3d[2]
+                    #     self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point)
+                    # elif points_3d[0] is not None:
+                    #     temp_point = points_3d[0]
+                    #     self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point, True)
+
                     # temp_point[2] = adjusted_point_0[2]
                     # print('adjusted_point_0=',adjusted_point_0)
                     # print('temp_point=',temp_point)
-                    self.tomato_reference_frame = self.calculate_reference_frame_2points(adjusted_point_0, temp_point)
+                    
                     self.draw_reference_frame(
                         color_frame_print,
                         self.tomato_reference_frame[0:3, 3],  # origin
@@ -435,7 +461,9 @@ class GraspDetector:
         self.last_keypoint_set = current_keypoints
         #self.keypoints_history.append(current_keypoints)
         self.last_frame = color_frame_print
-        self.publish_frame_data(self.tomato_reference_frame, self.hand_pose, self.last_keypoint_set, self.last_frame)
+        # if object_radius is not None:
+        #     self.object_radius = object_radius
+        self.publish_frame_data(self.tomato_reference_frame, self.hand_pose, self.last_keypoint_set, self.last_frame,self.object_radius)
         return color_frame_print
 
     def get_last_keypoint_set(self):
@@ -454,7 +482,7 @@ class GraspDetector:
         # self.enabled = not self.enabled
         rospy.loginfo(f"Grasp enabled? {self.enabled}")
 
-    def publish_frame_data(self, tomato_frame, hand_frame, keypoints, image):
+    def publish_frame_data(self, tomato_frame, hand_frame, keypoints, image, radius):
         """Publish tomato reference frame as a PoseStamped message."""
         tomato_pose_msg = PoseStamped()
         tomato_pose_msg.header = Header()
@@ -524,6 +552,9 @@ class GraspDetector:
         msg.data = encoded_image.tobytes()
         self.image_pub.publish(msg)
 
+        """publish radius"""
+        self.radius_pub.publish(radius)
+
 
     def run(self):
             rate = rospy.Rate(500)  # Publish at 10 Hz
@@ -539,8 +570,8 @@ class GraspDetector:
                         if image is None:
                             continue
                         if self.show_frame:
-                            # cv2.namedWindow('RealSense Tomato Detection', cv2.WINDOW_NORMAL)
-                            # resized_image = cv2.resize(image, (1280, 960))
+                            cv2.namedWindow('RealSense Tomato Detection', cv2.WINDOW_NORMAL)
+                            resized_image = cv2.resize(image, (1280, 960))
                             cv2.imshow('RealSense Tomato Detection', image)
                             if cv2.waitKey(1) & 0xFF == ord('q'):
                                 break
