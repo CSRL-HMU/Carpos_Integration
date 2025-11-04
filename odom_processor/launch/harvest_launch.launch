@@ -5,11 +5,11 @@
     <node pkg="odom_processor" type="harvest_motion_node_with_scaling.py" name="harvest_motion_node" output="screen"/>
 
     <!-- Node για την εκτέλεση των κινήσεων στον UR10 -->
-    <node pkg="CARPOS_amg" type="carpos_amg_node_with_scaling.py" name="carpos_amg" output="screen" launch-prefix="python3"/>
+    <node pkg="CARPOS_amg" type="carpos_amg_node_with_scaling_andForce.py" name="carpos_amg" output="screen" launch-prefix="python3"/>
  <node pkg="carpos_active_perception" type="carpos_active_perception_node_with_scaling.py" name="carpos_active_perception" output="screen" launch-prefix="python3"/>
    
    <!-- Node για την εκτέλεση των κινήσεων στον UR10 -->
-  <node pkg="carpos_kinesthetics" type="carpos_kinesthetics_node.py" name="carpos_kinesthetic" output="screen" launch-prefix="python3"/>
+  <node pkg="carpos_kinesthetics" type="carpos_kinesthetics_node_withForceEnc.py" name="carpos_kinesthetic" output="screen" launch-prefix="python3"/>
  <!--<node pkg="carpos_kinesthetics" type="carpos_active_perception_node.py" name="carpos_active_perception" output="screen" launch-prefix="python3"/>-->
    
     <!-- Start Tomato Detector Node -->

@@ -63,9 +63,15 @@ trigger_vision_pub = rospy.Publisher('/grasp_enable', Bool, queue_size=10)
 grasp_g = np.identity(4)
 hand_g = np.identity(4)
 tomato_g = np.identity(4)
+
+
+##############################################
 iteration_counter = 0
+##############################################
 
 ok_redect_pressed = False
+
+
 detection_decision = 0
 
 actObs_enabled = False
