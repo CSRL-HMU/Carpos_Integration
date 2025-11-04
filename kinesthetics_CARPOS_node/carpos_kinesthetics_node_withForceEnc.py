@@ -5,6 +5,7 @@ import time
 import numpy as np 
 import rospy
 from std_msgs.msg import String
+from std_msgs.msg import Float32MultiArray
 
 import roboticstoolbox as rt
 import rtde_receive
@@ -27,6 +28,7 @@ sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_dmpy')
 from CSRL_orientation import * 
 from CSRL_math import * 
 from dmpSE3 import * 
+from force_regressor import *
 
 
 knowledge_path = "/home/carpos/catkin_ws/src/task_knowledge/"
@@ -64,6 +66,8 @@ ur.tool = p_wrist_gripper
 kernelType = 'Gaussian' # other option: sinc
 canonicalType = 'linear' # other option: exponential
 
+f_finger = 0.0
+
 
 dt = 0.002
 
@@ -79,10 +83,18 @@ def publish_joint_states(q):
     joint_pub.publish(msg)
 
 
+# This is the callback function for the high level commands
+def listen_force_callback(input_data):
+    global f_finger
+    f_finger = input_data.data[0] 
+
+    # print('f_finger=', f_finger)
+
+
 
 # This is the callback function for the high level commands
 def kinesthetic_correction_callback(data):
-    global pi, status_pub, knowledge_path, ur, dt, kernelType, canonicalType
+    global pi, status_pub, knowledge_path, ur, dt, kernelType, canonicalType, f_finger
 
 
     print('[Kinesthetics node] Running kinesthetic correction.....')
@@ -184,6 +196,8 @@ def kinesthetic_correction_callback(data):
     qdotc_log = np.zeros(6)
     f_log = np.zeros(6)
     K_log = np.zeros((6,6))
+
+    f_finger_log = f_finger
 
 
     #--------Admittance controler parameters-------#
@@ -399,7 +413,7 @@ def kinesthetic_correction_callback(data):
         vrdot_total = np.concatenate(( np.zeros(3), np.zeros(3)))
 
         # f = np.zeros(6)
-        print(f)
+        
         # vdot_total = Minv @ (- D @ ( v_total) - K @ e_total + f)
         vdot_total = vrdot_total + Minv @ (- D @ ( v_total - vr_total) - K @ e_total + f)
 
@@ -427,6 +441,8 @@ def kinesthetic_correction_callback(data):
         qdotc_log = np.vstack((qdotc_log, qdot_command))
         f_log = np.vstack((f_log, f))
         K_log = np.vstack((K_log, K))
+
+        f_finger_log = np.vstack((f_finger_log, f_finger))
 
         # synchronize
         rtde_c.waitPeriod(t_start)
@@ -470,21 +486,31 @@ def kinesthetic_correction_callback(data):
 
     dmpTask_corrected = dmpSE3(N_in=20, T_in=t[-1])
 
+    RBFenc_force = force_encoder(10, t[-1])
+
+    ftrain = f_finger_log - f_finger_log[0]
+
 
     dmpTask_corrected.train(dt, p_train, Q_train, False)
+    RBFenc_force.train(dt, ftrain, False)
 
 
-    print("Training completed. The new dmp_model is saved.")
-
+   
     ################# UNCOMMENT THIS FOR SEVING THE weights FILE 
     mdic = {"W": dmpTask_corrected.get_weights(), "T": dmpTask_corrected.T}
     scipy.io.savemat(str(knowledge_path) +"dmp_model.mat", mdic)
 
+    mdic = {"wf": RBFenc_force.get_weights(), "T": dmpTask_corrected.T}
+    scipy.io.savemat(str(knowledge_path) +"fenc_model.mat", mdic)
+
 
     Q_array = makeContinuous(Q_train)
     p_array = p_train.copy()
-    mdic = {"p_array": p_array[:,1:], "Q_array": Q_array[:,1:], "dt": dt, "tomato_r0": tomato_r0}
+    mdic = {"p_array": p_array[:,1:], "Q_array": Q_array[:,1:], "dt": dt, "tomato_r0": tomato_r0, "f_array": ftrain}
     scipy.io.savemat(str(knowledge_path) +"training_demo.mat", mdic)
+
+
+    print("Training completed. The new dmp_model is saved.")
 
 
     status_str = "success" 
@@ -501,6 +527,7 @@ if __name__ == '__main__':
     rospy.init_node('carpos_kinethetics', anonymous=True)
     rate = rospy.Rate(100) 
 
+    rospy.Subscriber("fsr_data", Float32MultiArray, listen_force_callback)
     rospy.Subscriber("start_kinesthetic_correction", String, kinesthetic_correction_callback)
     rospy.loginfo('Kinesthetics node started ... ')
 

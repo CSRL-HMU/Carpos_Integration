@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import rospy
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Float32MultiArray
 # from custom_msgs.msg import HarvestCommand
 from CARPOS_amg.msg import amg_message
 import numpy as np
@@ -22,6 +22,8 @@ from sensor_msgs.msg import JointState
 
 
 
+
+
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
 sys.path.insert(1, '/home/carpos/catkin_ws/src/CSRL_base')
@@ -39,6 +41,15 @@ q_equil = q_equil * math.pi / 180
 
 
 null_gain = 2.5
+
+f_finger = 0.0
+
+# This is the callback function for the high level commands
+def listen_force_callback(input_data):
+    global f_finger
+    f_finger = input_data.data[0] 
+
+    # print('f_finger=', f_finger)
 
 
 def test_callback(data):
@@ -236,7 +247,7 @@ p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.0675, 0.067) #D415
 # p_wrist_camera = SE3(rotation_matrix) * SE3(-0.0325, -0.07, 0.075) #D415
 
 rotation_matrix = SO3.AngVec(-pi/2, np.array([0,0,1]))
-p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.07, 0,  0.14+0.05)  # Position of the tool (in meters)
+p_wrist_gripper = SE3(rotation_matrix) * SE3(-0.07, 0,  0.14+0.03)  # Position of the tool (in meters)
 # for prickly peear gripper 
 # p_wrist_gripper = SE3(rotation_matrix) * SE3(0.00, 0,  0.22)
 # p_wrist_gripper = SE3(rotation_matrix, np.array([0.0, 0.031, 0.05])) 
@@ -316,7 +327,7 @@ def amg_enable_robot(data):
 # This is the callback function for the high level commands
 def amg_command_callback(data):
 
-    global ur, warning_flag, d_adm, ddot_adm, dddot_adm, M_adm, D_adm, K_adm
+    global ur, warning_flag, d_adm, ddot_adm, dddot_adm, M_adm, D_adm, K_adm, f_finger
 
     T = data.duration
     t = 0
@@ -592,12 +603,17 @@ def amg_command_callback(data):
             # Import current dmp model
             data = scipy.io.loadmat(str(knowledge_path) +'/dmp_model.mat')
 
+            dataFenc = scipy.io.loadmat(str(knowledge_path) +'/fenc_model.mat')
    
-
+            f_finger0 = f_finger 
             
 
             # These are the weights of the DMP
             W = np.array(data['W']) 
+
+            # These are the weights of the RBF encoding
+            wf= np.array(dataFenc['wf']) 
+            wf.shape = (1,wf.size)
 
             # The total duration 
             T = data['T'][0][0]
@@ -611,6 +627,8 @@ def amg_command_callback(data):
 
             p_train = np.array(train_data['p_array'])
             Q_train = np.array(train_data['Q_array'])
+
+
 
             
 
@@ -631,8 +649,15 @@ def amg_command_callback(data):
             # Create the DMP SE(3) object
             dmpTask = dmpSE3(N_in=W[0,:].size, T_in=T)
 
+
+            RBFenc_force = force_encoder(N_in=wf.size, T_in=T)
+
+            kffinger = 0.2
+
             # Loading the weights as taken from the saved model
             dmpTask.set_weights(W, T, Q0=Q0, Qtarget=QT)
+
+            RBFenc_force.set_weights(wf, T)
 
             #  Setting the params of DMP
             dmpTask.set_goal(pT, QT)
@@ -686,6 +711,9 @@ def amg_command_callback(data):
             p_array = np.array([0, 0, 0])
             p_array.shape = (3,1)
 
+            force_d_log = 0
+            f_finger_log = 0
+
 
 
             t = 0
@@ -719,6 +747,7 @@ def amg_command_callback(data):
                                                                 dot_eo)
                 
                 
+                
                 Q_desired =  quatProduct( quatInv( quatExp( 0.5 * eo ) ) , QT )
                 term3 = Jlog(quatProduct(QT,quatInv(Q_desired))) @ dot_eo
                 Qdot = - 0.5 * quatProduct( quatProduct( quatProduct(Q_desired, quatInv(QT)) , term3), Q_desired) 
@@ -726,6 +755,7 @@ def amg_command_callback(data):
                 omegad = 2 * QdotQinv[1:4]
                 # omegad = quat2rot(QT) @ omegad
 
+                
 
                 # translate everything to the world frame
                 pdw = p0rob + R0rob @ pd
@@ -742,6 +772,17 @@ def amg_command_callback(data):
                 # R = np.array(g.R)
                 # p = np.array(g.t)
                 p, R, Q_nouse = get_ee_pose()
+
+                ################## Finger force shaping
+                force_d = RBFenc_force.get_value(z)
+
+                ef  = force_d - (f_finger - f_finger0)
+                Rrob0 = R0rob.T
+                ddp = ddp + Rrob0 @ R[:,2] * kffinger * ef 
+
+                print(R[:,2] * kffinger * ef )
+
+                ##################
                 
                 
 
@@ -800,11 +841,17 @@ def amg_command_callback(data):
                 Qtemp.shape = (4,1)
                 Qdtemp.shape = (4,1)
 
+              
+
 
                 Q_array = np.hstack((Q_array,Qtemp))
                 p_array = np.hstack((p_array,ptemp))
                 Qd_array = np.hstack((Qd_array,Qdtemp))
                 pd_array = np.hstack((pd_array,pdtemp))
+
+                force_d_log = np.hstack((force_d_log,force_d))
+                f_finger_log = np.hstack((f_finger_log,f_finger - f_finger0))
+
 
 
             QT = Qdw.copy()
@@ -815,7 +862,7 @@ def amg_command_callback(data):
                 rtde_c.speedStop()      
 
             # rtde_c.stopContactDetection()
-            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, 'tomato_r0':tomato_r0, 'tomato_r':tomato_r}
+            mdic = {"Q_array": Q_array, "Qd_array": Qd_array, "p_array": p_array, "pd_array": pd_array, 'tomato_r0':tomato_r0, 'tomato_r':tomato_r, 'force_d_log':force_d_log, 'f_finger_log':f_finger_log}
         
             scipy.io.savemat('/home/carpos/catkin_ws/src/logging/DMP_logging.mat', mdic)
                         
@@ -950,6 +997,9 @@ if __name__ == '__main__':
     rospy.Subscriber("amg_command", amg_message, amg_command_callback)
 
     rospy.Subscriber('/husky_velocity_controller/odom', Odometry, husky_pose_callback)
+
+
+    rospy.Subscriber("fsr_data", Float32MultiArray, listen_force_callback)
 
 
 
